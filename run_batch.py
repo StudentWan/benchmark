@@ -1,6 +1,8 @@
 """Run a batch of benchmark tasks. Used by GitHub Actions runners."""
 
-import os
+import os, logging
+os.environ["BROWSER_USE_SETUP_LOGGING"] = "false"  # Must be set before importing browser_use
+logging.basicConfig(level=logging.CRITICAL)  # Suppress all logs including shutdown warnings
 
 import argparse
 import asyncio

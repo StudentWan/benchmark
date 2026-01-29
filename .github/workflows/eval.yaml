@@ -50,6 +50,7 @@ jobs:
 
       - name: Run benchmark batch
         env:
+          BROWSER_USE_SETUP_LOGGING: "false"
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}

@@ -26,7 +26,7 @@ TASK_TIMEOUT = 1800 # 30 minutes max per task
 BROWSER_NAME = "BrowserUseCloud"
 AGENT_FRAMEWORK_NAME = "BrowserUse"
 AGENT_FRAMEWORK_VERSION = "0.11.5"
-MODEL_NAME = "ChatBrowserUse"
+MODEL_NAME = "ChatBrowserUse-2"
 
 # Run naming
 RUN_START = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -69,7 +69,7 @@ async def run_task(task: dict, semaphore: asyncio.Semaphore, llm=None, run_data_
 
             # To swap model: replace ChatBrowserUse() with your LLM (e.g. ChatOpenAI, ChatAnthropic)
             # You can use any OpenAI API compatible model by changing base_url. You can use ollama too. See https://docs.browser-use.com/supported-models for info
-            agent = Agent(task=task["confirmed_task"], llm=llm or ChatBrowserUse(), browser=browser)
+            agent = Agent(task=task["confirmed_task"], llm=llm or ChatBrowserUse(model="bu-2-0"), browser=browser)
             
             try:
                 agent_history = await asyncio.wait_for(agent.run(), timeout=TASK_TIMEOUT)
@@ -114,7 +114,7 @@ async def run_task(task: dict, semaphore: asyncio.Semaphore, llm=None, run_data_
 
 
 async def main():
-    tasks, sem = load_tasks(), asyncio.Semaphore(MAX_CONCURRENT) # First 10 tasks only for now
+    tasks, sem = load_tasks(), asyncio.Semaphore(MAX_CONCURRENT)
     results = await asyncio.gather(*[run_task(t, sem) for t in tasks])
     
     # Aggregate metrics
