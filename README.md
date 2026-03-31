@@ -1,156 +1,216 @@
-<picture>
-  <source media="(prefers-color-scheme: light)" srcset="https://github.com/user-attachments/assets/2ccdb752-22fb-41c7-8948-857fc1ad7e24"">
-  <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/774a46d5-27a0-490c-b7d0-e65fcbbfa358">
-  <img alt="Shows a black Browser Use Logo in light color mode and a white one in dark color mode." src="https://github.com/user-attachments/assets/2ccdb752-22fb-41c7-8948-857fc1ad7e24"  width="full">
-</picture>
+# Phantom Benchmark
+
+Browser automation benchmark using CLI tools + Claude. Evaluates how well an LLM-driven agent can complete real-world web tasks using [playwright-cli](https://github.com/anthropics/anthropic-playwright-mcp) as the browser automation backend.
+
+## Architecture
+
+```
+run_eval.py                    # Main entry point
+    |
+    v
+CliAgent (agent/agent.py)     # Agentic loop: Claude decides -> CLI executes -> repeat
+    |
+    v
+CliRunner (agent/runner.py)   # Abstract CLI interface
+    |
+    v
+PlaywrightCliRunner            # playwright-cli subprocess wrapper
+    |
+    v
+playwright-cli                 # Browser automation via snapshots + element refs
+```
+
+The agent uses Claude's [tool_use](https://docs.anthropic.com/en/docs/build-with-claude/tool-use) API to decide which browser actions to take. Each iteration:
+
+1. Claude receives the task + current page snapshot
+2. Claude calls a tool (navigate, click, fill, snapshot, etc.)
+3. Python executes the corresponding `playwright-cli` command
+4. The result is fed back to Claude
+5. Repeat until task is complete or iteration limit is reached
+
+A separate Claude judge evaluates the final result against ground truth.
 
 ---
 
-<div align="center">
-<a href="#demos"><img src="https://media.browser-use.tools/badges/demos" alt="Demos"></a>
-<img width="16" height="1" alt="">
-<a href="https://docs.browser-use.com"><img src="https://media.browser-use.tools/badges/docs" alt="Docs"></a>
-<img width="16" height="1" alt="">
-<a href="https://browser-use.com/posts"><img src="https://media.browser-use.tools/badges/blog" alt="Blog"></a>
-<img width="16" height="1" alt="">
-<a href="https://browsermerch.com"><img src="https://media.browser-use.tools/badges/merch" alt="Merch"></a>
-<img width="100" height="1" alt="">
-<a href="https://github.com/browser-use/browser-use"><img src="https://media.browser-use.tools/badges/github" alt="Github Stars"></a>
-<img width="4" height="1" alt="">
-<a href="https://x.com/intent/user?screen_name=browser_use"><img src="https://media.browser-use.tools/badges/twitter" alt="Twitter"></a>
-<img width="4 height="1" alt="">
-<a href="https://link.browser-use.com/discord"><img src="https://media.browser-use.tools/badges/discord" alt="Discord"></a>
-<img width="4" height="1" alt="">
-<a href="https://cloud.browser-use.com"><img src="https://media.browser-use.tools/badges/cloud" height="48" alt="Browser-Use Cloud"></a>
-</div>
+## Quick Start
 
-<h1 align="center">Open-Source Benchmarks</h1>
+### Prerequisites
 
-<br/>
+- **Python 3.11+**
+- **Node.js 18+** (for playwright-cli)
+- **[uv](https://docs.astral.sh/uv/)** (Python package manager)
+- **Anthropic API key** (or compatible proxy)
 
----
+### 1. Install playwright-cli
 
-<br/>
-
-## Stealth Bench V1
-
-**71 tasks for evaluating browser stealth across anti-bot protections**
-
-<picture>
-  <source media="(prefers-color-scheme: light)" srcset="stealth_bench/official_plots/accuracy_by_browser_light.png">
-  <source media="(prefers-color-scheme: dark)" srcset="stealth_bench/official_plots/accuracy_by_browser_dark.png">
-  <img alt="Stealth Bench - Accuracy by Browser" src="stealth_bench/official_plots/accuracy_by_browser_light.png" width="100%">
-</picture>
-
-<picture>
-  <source media="(prefers-color-scheme: light)" srcset="stealth_bench/official_plots/category_heatmap_light.png">
-  <source media="(prefers-color-scheme: dark)" srcset="stealth_bench/official_plots/category_heatmap_dark.png">
-  <img alt="Stealth Bench - Category Heatmap" src="stealth_bench/official_plots/category_heatmap_light.png" width="100%">
-</picture>
-
-Read more in our [blog post](https://browser-use.com/posts/stealth-benchmark).
-
-### Running the Stealth Benchmark
-
-**1. Install dependencies**
 ```bash
-pip install uv
+npm install -g @playwright/cli
+```
+
+Verify it's installed:
+
+```bash
+playwright-cli --version
+```
+
+### 2. Clone and install Python dependencies
+
+```bash
+git clone <repo-url>
+cd phantom-benchmark
+pip install uv    # if you don't have uv yet
 uv sync
 ```
 
-**2. Set up your `.env`** (see [`.env.example`](.env.example))
+### 3. Configure API credentials
+
 ```bash
 cp .env.example .env
-# Fill in GOOGLE_API_KEY (required for the judge LLM)
-# Fill in the API key for the browser provider you want to test
 ```
 
-**3. Decrypt the task set**
-```bash
-python -c "
-import base64, hashlib, json
-from cryptography.fernet import Fernet
-key = base64.urlsafe_b64encode(hashlib.sha256(b'Stealth_Bench_V1').digest())
-tasks = json.loads(Fernet(key).decrypt(base64.b64decode(open('Stealth_Bench_V1.enc').read())))
-print(f'Loaded {len(tasks)} tasks')
-json.dump(tasks, open('Stealth_Bench_V1.json', 'w'), indent=2)
-"
+Edit `.env` with one of these options:
+
+**Option A: Direct Anthropic API key (recommended)**
+```env
+ANTHROPIC_API_KEY=sk-ant-api03-...
 ```
 
-**4. Run the evaluation**
-```bash
-uv run python run_eval.py --browser <provider>
+**Option B: Proxy (e.g. Agent Maestro Desktop)**
+```env
+ANTHROPIC_BASE_URL=http://127.0.0.1:23337
+ANTHROPIC_AUTH_TOKEN=Powered by Agent Maestro Desktop
 ```
 
-Available providers: `browser-use-cloud`, `anchor`, `browserbase`, `browserless`, `hyperbrowser`, `onkernel`, `steel`, `local_headful`, `local_headless`
+### 4. Run the benchmark
 
-**Results and official data:** [`stealth_bench/`](stealth_bench/)
-
-<br/>
-
----
-
-<br/>
-
-## BU Bench V1
-
-**100 hand-selected tasks for evaluating browser automation agents**
-
-<picture>
-  <source media="(prefers-color-scheme: light)" srcset="official_plots/accuracy_by_model_light.png">
-  <source media="(prefers-color-scheme: dark)" srcset="official_plots/accuracy_by_model_dark.png">
-  <img alt="Accuracy by Model" src="official_plots/accuracy_by_model_light.png" width="100%">
-</picture>
-
-<picture>
-  <source media="(prefers-color-scheme: light)" srcset="official_plots/accuracy_vs_throughput_light.png">
-  <source media="(prefers-color-scheme: dark)" srcset="official_plots/accuracy_vs_throughput_dark.png">
-  <img alt="Accuracy vs Latency" src="official_plots/accuracy_vs_throughput_light.png" width="100%">
-</picture>
-
-### Running BU Bench
-
-**1. Install dependencies**
 ```bash
-pip install uv
-uv sync
-```
+# Run 1 task to verify setup (headed mode to see the browser)
+uv run python run_eval.py --tasks 1 --headed
 
-**2. Set up your `.env`** (see [`.env.example`](.env.example))
-```bash
-cp .env.example .env
-# Fill in BROWSER_USE_API_KEY (required for ChatBrowserUse and cloud browsers)
-# Fill in GOOGLE_API_KEY (required for judge LLM)
-```
-
-**3. Run evaluation**
-```bash
+# Run all 100 BU Bench tasks
 uv run python run_eval.py
+
+# Run Stealth Bench (71 tasks)
+uv run python run_eval.py --benchmark stealth-bench
 ```
 
-Results are saved to `results/` and detailed traces to `run_data/`.
+---
 
-### Swapping Models
+## Usage
 
-Edit `run_eval.py` to change the model:
+### Command-line Options
 
-```python
-# Default: ChatBrowserUse (recommended)
-agent = Agent(task=task["confirmed_task"], llm=ChatBrowserUse(), browser=browser)
-
-# OpenAI
-agent = Agent(task=task["confirmed_task"], llm=ChatOpenAI(model="gpt-4.1"), browser=browser)
-
-# Anthropic
-agent = Agent(task=task["confirmed_task"], llm=ChatAnthropic(model="claude-sonnet-4-5"), browser=browser)
-
-# Google
-agent = Agent(task=task["confirmed_task"], llm=ChatGoogle(model="gemini-2.5-flash"), browser=browser)
+```
+uv run python run_eval.py [OPTIONS]
 ```
 
-### About BU Bench
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--benchmark` | `bu-bench` | Benchmark to run: `bu-bench` (100 tasks) or `stealth-bench` (71 tasks) |
+| `--model` | `claude-sonnet-4.6` | Claude model: `claude-haiku-4.5`, `claude-sonnet-4.6`, `claude-opus-4.6` |
+| `--tasks` | all | Number of tasks to run (e.g. `--tasks 5` for first 5) |
+| `--headed` | off | Show the browser window (useful for debugging) |
+| `--cli` | `playwright-cli` | CLI backend to use |
 
-100 tasks drawn from established benchmarks and custom challenges:
+### Examples
+
+```bash
+# Quick smoke test
+uv run python run_eval.py --tasks 1 --headed
+
+# Run 10 tasks with Haiku (fastest, cheapest)
+uv run python run_eval.py --tasks 10 --model claude-haiku-4.5
+
+# Full BU Bench with Opus
+uv run python run_eval.py --model claude-opus-4.6
+
+# Full Stealth Bench
+uv run python run_eval.py --benchmark stealth-bench
+
+# Both benchmarks
+uv run python run_eval.py --benchmark bu-bench && uv run python run_eval.py --benchmark stealth-bench
+```
+
+### Terminal Output
+
+Each task logs detailed progress in real-time:
+
+```
+Running task: 66c6641b-...
+[66c6641b-...] Starting browser session...
+[66c6641b-...] Browser started
+[66c6641b-...] Task: Browse the list of active Q&A communities on https://stackex...
+[66c6641b-...] Iteration 1/50 - calling LLM...
+[66c6641b-...]   LLM responded: stop=tool_use, tokens_in=2841, tokens_out=98, cost=$0.023, elapsed=5.2s
+[66c6641b-...]   Step 1: Navigated to https://stackexchange.com
+[66c6641b-...] Iteration 2/50 - calling LLM...
+[66c6641b-...]   Step 2: Took page snapshot
+...
+[66c6641b-...] Done: 12 steps, 89.3s, $0.452, tokens=52000+3200
+[66c6641b-...] Running judge...
+Task 66c6641b-... completed: score=1, verdict=True
+Run complete: 1/1 tasks successful, 12 steps, 89.3s, $0.45
+```
+
+---
+
+## Output
+
+### Results
+
+Aggregate results are saved to `results/`:
+
+```
+results/PlaywrightCLI_1.59.0_model_claude-sonnet-4.6.json
+```
+
+```json
+[
+  {
+    "run_start": "20260331_154630",
+    "tasks_completed": 100,
+    "tasks_successful": 62,
+    "total_steps": 1547,
+    "total_duration": 28340.5,
+    "total_cost": 185.23
+  }
+]
+```
+
+### Traces
+
+Detailed per-task traces are saved to `run_data/<run_key>/`:
+
+```
+run_data/PlaywrightCLI_1.59.0_model_claude-sonnet-4.6_start_at_20260331_154630/
+  66c6641b-f949-46a2-8bcc-6d9dd388b534.json    # Trace + judgement
+  66c6641b-f949-46a2-8bcc-6d9dd388b534/         # Screenshots
+    screenshots/
+      screenshot_0001.png
+      screenshot_0002.png
+      ...
+```
+
+Each trace JSON contains:
+- `agent_trace`: task, final result, step-by-step actions, ground truth, screenshots (base64)
+- `metrics`: steps, duration, cost
+- `judgement`: verdict, reasoning, failure reason
+
+### Plots
+
+Generate comparison plots from results in `official_results/`:
+
+```bash
+uv run --group plots python generate_plots.py
+```
+
+---
+
+## Benchmarks
+
+### BU Bench V1
+
+**100 hand-selected tasks** for evaluating browser automation agents.
 
 | Source | Tasks | Description |
 |--------|-------|-------------|
@@ -160,74 +220,134 @@ agent = Agent(task=task["confirmed_task"], llm=ChatGoogle(model="gemini-2.5-flas
 | GAIA | 20 | General AI assistant tasks (web-based) |
 | BrowseComp | 20 | Browser comprehension tasks |
 
-WebBench, Mind2Web 2, and BrowseComp are released under the MIT license. GAIA has no explicit license; to comply with its data policies, we only include tasks from the "fully public" validation split, and all tasks are base64 encoded and encrypted to prevent data contamination.
+### Stealth Bench V1
 
-Tasks were hand-selected for difficulty and verified to be achievable. Each task has been validated to confirm it can be completed successfully.
+**71 tasks** for evaluating browser stealth across anti-bot protections.
 
-Important: The task set is stored in base64 encoding to prevent data contamination in LLM training. Please do not publish the tasks in plaintext or use them in model training data.
+### Task Encryption
 
-#### Task Format
+Task sets are encrypted (Fernet + SHA256) to prevent data contamination in LLM training. The keys are derived from the benchmark names and embedded in the code. **Do not publish decrypted tasks in plaintext.**
 
-| Field | Description |
-|-------|-------------|
-| `task_id` | Unique identifier |
-| `confirmed_task` | Task instruction |
-| `category` | Source benchmark |
-| `answer` | Ground truth (if applicable) |
+To inspect the tasks:
 
-<br/>
+```bash
+uv run python -c "
+from run_eval import load_tasks
+tasks = load_tasks('bu-bench')
+print(f'{len(tasks)} tasks loaded')
+for t in tasks[:3]:
+    print(f\"  {t['task_id']}: {t['confirmed_task'][:80]}...\")
+"
+```
 
 ---
 
-<br/>
+## Distributed Runs (GitHub Actions)
+
+For running large-scale evaluations across GitHub Actions runners:
+
+```bash
+# Configure orchestrator.py with desired models and run count
+uv run python orchestrator.py
+```
+
+This dispatches batches of 10 tasks to parallel runners and aggregates results into `official_results/`.
+
+See `orchestrator.py` for configuration (models, batch size, concurrency) and `run_batch.py` for the per-batch runner.
+
+---
+
+## Project Structure
+
+```
+phantom-benchmark/
+  agent/                    # Agent package
+    __init__.py             # Exports CliAgent, AgentResult
+    agent.py                # Agentic loop (Claude tool_use)
+    cost.py                 # Token cost calculation
+    prompts.py              # System prompt for the agent
+    result.py               # AgentResult dataclass
+    runner.py               # CliRunner ABC + PlaywrightCliRunner
+    tools.py                # Tool definitions + executor
+  judge.py                  # Judge message construction
+  judge_llm.py              # Claude judge invocation
+  run_eval.py               # Main benchmark script
+  run_batch.py              # Batch runner (for GitHub Actions)
+  orchestrator.py           # Distributed run orchestrator
+  generate_plots.py         # Plot generation from results
+  BU_Bench_V1.enc           # Encrypted BU Bench tasks
+  Stealth_Bench_V1.enc      # Encrypted Stealth Bench tasks
+  pyproject.toml            # Python project config
+  .env.example              # Environment variable template
+```
+
+---
+
+## Cost Estimates
+
+Approximate costs per full benchmark run (100 BU Bench tasks):
+
+| Model | Est. Cost | Est. Duration |
+|-------|-----------|---------------|
+| claude-haiku-4.5 | ~$30-60 | ~2-4 hours |
+| claude-sonnet-4.6 | ~$100-200 | ~3-6 hours |
+| claude-opus-4.6 | ~$150-300 | ~4-8 hours |
+
+Costs depend on task complexity and number of iterations per task. Use `--tasks N` to do a smaller test run first.
+
+---
+
+## Troubleshooting
+
+### `playwright-cli not found`
+
+Make sure it's installed globally and in your PATH:
+
+```bash
+npm install -g @playwright/cli
+playwright-cli --version
+```
+
+### `ANTHROPIC_API_KEY not set`
+
+Create a `.env` file from the template:
+
+```bash
+cp .env.example .env
+# Then edit .env with your API key
+```
+
+### Browser not showing in headed mode
+
+Make sure you're using `--headed` (not `--head`):
+
+```bash
+uv run python run_eval.py --tasks 1 --headed
+```
+
+### API 502 / Connection errors
+
+The agent retries API calls automatically (3 attempts with exponential backoff). If errors persist, check:
+- Your API key is valid
+- Your proxy is running (if using one)
+- You have internet connectivity
+
+### Task timed out
+
+Default timeout is 30 minutes per task. Some complex tasks may hit this limit. The agent caps at 50 iterations per task.
+
+---
 
 ## Attributions
 
 ### WebBench
 MIT License | https://webbench.ai/
-```bibtex
-@misc{webbench2025,
-  title = {WebBench: AI Web Browsing Agent Benchmark},
-  author = {{Halluminate and Skyvern}},
-  year = {2025},
-  note = {\url{https://webbench.ai/}},
-}
-```
 
 ### Mind2Web 2 (OMI2W-2)
 MIT License | https://openreview.net/forum?id=AUaW6DS9si
-```bibtex
-@inproceedings{
-    gou2025mind2web2,
-    title={Mind2Web 2: Evaluating Agentic Search with Agent-as-a-Judge},
-    author={Boyu Gou and Zanming Huang and Yuting Ning and Yu Gu and Michael Lin and Botao Yu and Andrei Kopanev and Weijian Qi and Yiheng Shu and Jiaman Wu and Chan Hee Song and Bernal Jimenez Gutierrez and Yifei Li and Zeyi Liao and Hanane Nour Moussa and TIANSHU ZHANG and Jian Xie and Tianci Xue and Shijie Chen and Boyuan Zheng and Kai Zhang and Zhaowei Cai and Viktor Rozgic and Morteza Ziyadi and Huan Sun and Yu Su},
-    booktitle={The Thirty-ninth Annual Conference on Neural Information Processing Systems Datasets and Benchmarks Track},
-    year={2025},
-    url={https://openreview.net/forum?id=AUaW6DS9si}
-}
-```
 
 ### BrowseComp
 MIT License | https://cdn.openai.com/pdf/5e10f4ab-d6f7-442e-9508-59515c65e35d/browsecomp.pdf
-```bibtex
-@techreport{wei2025browsecomp,
-  author = {Jason Wei and Zhiqing Sun and Spencer Papay and Scott McKinney and Jeffrey Han and Isa Fulford and Hyung Won Chung and Alex Tachard Passos and William Fedus and Amelia Glaese},
-  title = {BrowseComp: A Simple Yet Challenging Benchmark for Browsing Agents},
-  institution = {OpenAI},
-  year = {2025},
-  url = {https://cdn.openai.com/pdf/5e10f4ab-d6f7-442e-9508-59515c65e35d/browsecomp.pdf},
-}
-```
 
 ### GAIA
 No license (public validation split only) | https://huggingface.co/datasets/gaia-benchmark/GAIA
-```bibtex
-@misc{mialon2023gaia,
-  title={GAIA: a benchmark for General AI Assistants},
-  author={Gregoire Mialon and Clementine Fourrier and Craig Swift and Thomas Wolf and Yann LeCun and Thomas Scialom},
-  year={2023},
-  eprint={2311.12983},
-  archivePrefix={arXiv},
-  primaryClass={cs.CL}
-}
-```

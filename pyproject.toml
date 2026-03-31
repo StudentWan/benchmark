@@ -1,13 +1,13 @@
 [project]
-name = "browser-use-benchmark"
-version = "0.1.0"
-description = "Open source benchmark for browser-use"
+name = "phantom-benchmark"
+version = "1.0.0"
+description = "Browser automation benchmark using CLI tools + Claude"
 requires-python = ">=3.11"
 dependencies = [
-    "browser-use==0.11.5",
+    "anthropic>=0.40.0",
     "certifi",
     "cryptography",
-    "httpx",
+    "pydantic>=2.0",
     "python-dotenv",
 ]
 

@@ -5,3 +5,5 @@ __pycache__/
 run_data/
 DESIGN.MD
 results/
+.playwright-cli/
+.claude/

@@ -1,14 +1,6 @@
 """Judge system for evaluating browser-use agent execution traces."""
 
 from pydantic import BaseModel, Field
-from browser_use.llm.messages import (
-	BaseMessage,
-	ContentPartImageParam,
-	ContentPartTextParam,
-	ImageURL,
-	SystemMessage,
-	UserMessage,
-)
 
 
 class JudgementResult(BaseModel):
@@ -32,7 +24,7 @@ def construct_judge_messages(
 	screenshots_b64: list[str],
 	ground_truth: str | None = None,
 	max_images: int = 10,
-) -> list[BaseMessage]:
+) -> tuple[str, list[dict]]:
 	"""
 	Construct messages for judge evaluation of agent trace.
 
@@ -45,7 +37,8 @@ def construct_judge_messages(
 		ground_truth: Optional ground truth answer or criteria that must be satisfied for success
 
 	Returns:
-		List of messages for LLM judge evaluation
+		Tuple of (system_prompt_str, user_content_parts) where user_content_parts
+		is a list of Anthropic API content blocks (text + images).
 	"""
 	task_truncated = _truncate_text(task, 40000)
 	final_result_truncated = _truncate_text(final_result, 40000)
@@ -56,12 +49,6 @@ def construct_judge_messages(
 	seen = set()
 	unique = [s for s in reversed(screenshots_b64) if s not in seen and not seen.add(s)]
 	selected = list(reversed(unique[:max_images]))
-
-	# Build image content parts
-	encoded_images: list[ContentPartImageParam] = [
-		ContentPartImageParam(image_url=ImageURL(url=f'data:image/png;base64,{img}', media_type='image/png'))
-		for img in selected
-	]
 
 	# System prompt for judge - conditionally add ground truth section
 	ground_truth_section = ''
@@ -83,8 +70,8 @@ The ground truth takes ABSOLUTE precedence over all other evaluation criteria. I
 **PRIMARY EVALUATION CRITERIA (in order of importance):**
 1. **Task Satisfaction (Most Important)**: Did the agent accomplish what the user asked for? Break down the task into the key criteria and evaluate if the agent all of them. Focus on user intent and final outcome.
 2. **Output Quality**: Is the final result in the correct format and complete? Does it match exactly what was requested?
-3. **Tool Effectiveness**: Did the browser interactions work as expected? Were tools used appropriately? How many % of the tools failed? 
-4. **Agent Reasoning**: Quality of decision-making, planning, and problem-solving throughout the trajectory. 
+3. **Tool Effectiveness**: Did the browser interactions work as expected? Were tools used appropriately? How many % of the tools failed?
+4. **Agent Reasoning**: Quality of decision-making, planning, and problem-solving throughout the trajectory.
 5. **Browser Handling**: Navigation stability, error recovery, and technical execution. If the browser crashes, does not load or a captcha blocks the task, the score must be very low.
 
 **VERDICT GUIDELINES:**
@@ -106,7 +93,7 @@ The ground truth takes ABSOLUTE precedence over all other evaluation criteria. I
 - If the agent is unable to complete the task because no login information was provided and it is truly needed to complete the task: false
 
 **FAILURE CONDITIONS (automatically set verdict to false):**
-- Blocked by captcha or missing authentication 
+- Blocked by captcha or missing authentication
 - Output format completely wrong or missing
 - Infinite loops or severe technical failures
 - Critical user requirements ignored
@@ -144,7 +131,7 @@ Set `reached_captcha` to true if:
 - **screenshot is not entire content** - The agent has the entire DOM content, but the screenshot is only part of the content. If the agent extracts information from the page, but you do not see it in the screenshot, you can assume this information is there.
 - **Penalize poor tool usage** - Wrong tools, inefficient approaches, ignoring available information.
 - **ignore unexpected dates and times** - These agent traces are from varying dates, you can assume the dates the agent uses for search or filtering are correct.
-- **IMPORTANT**: be very picky about the user's request - Have very high standard for the agent completing the task exactly to the user's request. 
+- **IMPORTANT**: be very picky about the user's request - Have very high standard for the agent completing the task exactly to the user's request.
 - **IMPORTANT**: be initially doubtful of the agent's self reported success, be sure to verify that its methods are valid and fulfill the user's desires to a tee.
 
 </evaluation_framework>
@@ -171,7 +158,7 @@ Respond with EXACTLY this JSON structure (no additional text before or after):
 </ground_truth>
 """
 
-	user_prompt = f"""
+	user_text = f"""
 <task>
 {task_truncated or 'No task provided'}
 </task>
@@ -184,15 +171,20 @@ Respond with EXACTLY this JSON structure (no additional text before or after):
 {final_result_truncated or 'No final result provided'}
 </final_result>
 
-{len(encoded_images)} screenshots from execution are attached.
+{len(selected)} screenshots from execution are attached.
 
 Evaluate this agent execution given the criteria and respond with the exact JSON structure requested."""
 
-	# Build messages with screenshots
-	content_parts: list[ContentPartTextParam | ContentPartImageParam] = [ContentPartTextParam(text=user_prompt)]
-	content_parts.extend(encoded_images)
+	# Build user content parts in Anthropic API format
+	user_content: list[dict] = [{"type": "text", "text": user_text}]
+	for img_b64 in selected:
+		user_content.append({
+			"type": "image",
+			"source": {
+				"type": "base64",
+				"media_type": "image/png",
+				"data": img_b64,
+			},
+		})
 
-	return [
-		SystemMessage(content=system_prompt),
-		UserMessage(content=content_parts),
-	]
+	return system_prompt, user_content

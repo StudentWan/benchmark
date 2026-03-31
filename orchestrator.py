@@ -25,15 +25,15 @@ POLL_INTERVAL = 30  # seconds
 
 # Models to evaluate: {model_name: number_of_runs}
 RUNS = {
-    "bu-1-0": 5,
-    "bu-2-0": 5,
-    "gemini-2.5-flash": 5,
-    "claude-haiku-4-5": 5,
-    "claude-sonnet-4-5": 5,
-    "gemini-3-pro-preview": 5,
-    "gpt-5-mini": 5,
-    "gpt-5": 5,
+    "claude-haiku-4.5": 5,
+    "claude-sonnet-4.6": 5,
+    "claude-opus-4.6": 5,
 }
+
+# CLI backend and framework info for result file naming
+CLI_BACKEND = "playwright-cli"
+FRAMEWORK_NAME = "PlaywrightCLI"
+FRAMEWORK_VERSION = "1.0.0"
 
 RESULTS_DIR = Path(__file__).parent / "official_results"
 API_BASE = f"https://api.github.com/repos/{REPO}"
@@ -43,7 +43,18 @@ HEADERS = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.
 def dispatch_batch(model: str, start: int, end: int, tracking_id: str, run_start: str) -> bool:
     """Dispatch a workflow run. Returns True if successful."""
     url = f"{API_BASE}/actions/workflows/{WORKFLOW_FILE}/dispatches"
-    data = {"ref": "main", "inputs": {"model": model, "start": str(start), "end": str(end), "parallel": "3", "tracking_id": tracking_id, "run_start": run_start}}
+    data = {
+        "ref": "main",
+        "inputs": {
+            "model": model,
+            "start": str(start),
+            "end": str(end),
+            "parallel": "3",
+            "tracking_id": tracking_id,
+            "run_start": run_start,
+            "cli": CLI_BACKEND,
+        },
+    }
     resp = requests.post(url, headers=HEADERS, json=data, timeout=30)
     return resp.status_code == 204
 
@@ -92,26 +103,26 @@ def download_artifact(artifact_id: int, retries: int = 3) -> dict | None:
 def save_result(model: str, batch_result: dict):
     """Aggregate batch result into official_results file for the model."""
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    filename = RESULTS_DIR / f"BrowserUse_0.11.5_browser_BrowserUseCloud_model_{model}.json"
-    
+    filename = RESULTS_DIR / f"{FRAMEWORK_NAME}_{FRAMEWORK_VERSION}_model_{model}.json"
+
     # Load or create run data
     runs = json.loads(filename.read_text()) if filename.exists() else []
-    
+
     # Find or create run entry for this run_start
     run_start = batch_result.get("run_start", "unknown")
     run_entry = next((r for r in runs if r.get("run_start") == run_start), None)
-    
+
     if not run_entry:
         run_entry = {"run_start": run_start, "tasks_completed": 0, "tasks_successful": 0, "total_steps": 0, "total_duration": 0, "total_cost": 0}
         runs.append(run_entry)
-    
+
     # Aggregate batch metrics
     run_entry["tasks_completed"] += batch_result.get("tasks_completed", 0)
     run_entry["tasks_successful"] += batch_result.get("tasks_successful", 0)
     run_entry["total_steps"] += batch_result.get("total_steps", 0)
     run_entry["total_duration"] += batch_result.get("total_duration", 0)
     run_entry["total_cost"] += batch_result.get("total_cost", 0)
-    
+
     filename.write_text(json.dumps(runs, indent=2))
 
 
@@ -125,12 +136,12 @@ def main():
                 end = min(start + BATCH_SIZE, TOTAL_TASKS)
                 tracking_id = str(uuid.uuid4())
                 pending.append((model, start, end, tracking_id, run_start))
-    
+
     print(f"Total batches to run: {len(pending)}")
-    
+
     dispatched = {}  # tracking_id -> (model, start, end, run_start)
     completed = set()
-    
+
     while pending or dispatched:
         # Dispatch new batches up to limit
         while pending and len(dispatched) < MAX_CONCURRENT_BATCHES:
@@ -142,18 +153,18 @@ def main():
                 print(f"Failed to dispatch: {model} [{start}:{end}]")
                 pending.insert(0, (model, start, end, tracking_id, run_start))  # Retry later
                 break
-        
+
         if not dispatched:
             break
-        
+
         # Poll for completed artifacts
         print(f"Polling... ({len(dispatched)} running, {len(pending)} pending)")
         time.sleep(POLL_INTERVAL)
-        
+
         artifacts = list_artifacts()
         batch_artifacts = [a for a in artifacts if a.get("name", "").startswith("batch-")]
         print(f"Found {len(batch_artifacts)} batch artifacts")
-        
+
         for artifact in artifacts:
             name = artifact.get("name", "")
             if not name.startswith("batch-"):
@@ -167,7 +178,7 @@ def main():
                     completed.add(tracking_id)
                     del dispatched[tracking_id]
                     print(f"Completed: {model} [{start}:{end}] run={run_start} -> {result.get('tasks_successful')}/{result.get('tasks_completed')} successful")
-    
+
     print("All batches complete!")
 
 

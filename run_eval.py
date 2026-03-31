@@ -1,29 +1,20 @@
 """Main benchmark evaluation script.
 
 Usage:
-    uv run python run_eval.py                              # defaults: browser-use-cloud + bu-2-0
-    uv run python run_eval.py --browser anchor             # use Anchor Browser provider
-    uv run python run_eval.py --browser local_headless     # use local headless Chromium
-    uv run python run_eval.py --tasks 5                    # run only 5 tasks
+    uv run python run_eval.py                                     # defaults: playwright-cli + claude-sonnet-4-6
+    uv run python run_eval.py --cli playwright-cli --model claude-sonnet-4-6
+    uv run python run_eval.py --headed                            # run browser in headed mode
+    uv run python run_eval.py --tasks 5                           # run only 5 tasks
+    uv run python run_eval.py --benchmark stealth-bench           # run stealth benchmark
 
-Available browsers: browser-use-cloud (default), anchor, browserbase,
-    browserless, hyperbrowser, local_headful, local_headless, onkernel,
-    rebrowser, steel
+Available CLI backends: playwright-cli (default)
+Available models: claude-haiku-4-5, claude-sonnet-4-6 (default), claude-opus-4-6
 """
 
 # Fix for MacOS users using uv without SSL certificate setup
 import certifi, os
 
 os.environ.setdefault("SSL_CERT_FILE", certifi.where())
-
-import logging
-
-os.environ["BROWSER_USE_SETUP_LOGGING"] = (
-    "false"  # Must be set before importing browser_use
-)
-logging.basicConfig(
-    level=logging.CRITICAL
-)  # Suppress all logs including shutdown warnings
 
 import argparse
 import asyncio
@@ -32,22 +23,34 @@ from datetime import datetime
 from pathlib import Path
 from cryptography.fernet import Fernet
 from dotenv import load_dotenv
-from browser_use import Agent, Browser, ChatGoogle
-from browser_use.llm import ChatBrowserUse
-from browsers import PROVIDERS, get_provider
+from agent import CliAgent
+from agent.runner import PlaywrightCliRunner
 from judge import construct_judge_messages, JudgementResult
+from judge_llm import invoke_judge
 
 load_dotenv()
 
-# Judge LLM - always use gemini-2.5-flash for consistent judging across all evaluations
-JUDGE_LLM = ChatGoogle(model="gemini-2.5-flash", api_key=os.getenv("GOOGLE_API_KEY"))
-TASKS_FILE = Path(__file__).parent / "BU_Bench_V1.enc"
+# Configuration
 MAX_CONCURRENT = 3
 TASK_TIMEOUT = 1800  # 30 minutes max per task
+DEFAULT_MODEL = "claude-sonnet-4.6"
 
-AGENT_FRAMEWORK_NAME = "BrowserUse"
-AGENT_FRAMEWORK_VERSION = "0.11.5"
-MODEL_NAME = "bu-2-0"
+# Benchmark task files
+BENCHMARKS = {
+    "bu-bench": {
+        "file": Path(__file__).parent / "BU_Bench_V1.enc",
+        "key_seed": b"BU_Bench_V1",
+    },
+    "stealth-bench": {
+        "file": Path(__file__).parent / "Stealth_Bench_V1.enc",
+        "key_seed": b"Stealth_Bench_V1",
+    },
+}
+
+# CLI backend registry
+CLI_BACKENDS = {
+    "playwright-cli": PlaywrightCliRunner,
+}
 
 
 def encode_screenshots(paths: list[str]) -> list[str]:
@@ -60,39 +63,30 @@ def encode_screenshots(paths: list[str]) -> list[str]:
     return result
 
 
-def load_tasks() -> list[dict]:
-    key = base64.urlsafe_b64encode(hashlib.sha256(b"BU_Bench_V1").digest())
-    encrypted = base64.b64decode(TASKS_FILE.read_text())
+def load_tasks(benchmark: str = "bu-bench") -> list[dict]:
+    """Decrypt and load benchmark tasks."""
+    bench = BENCHMARKS[benchmark]
+    key = base64.urlsafe_b64encode(hashlib.sha256(bench["key_seed"]).digest())
+    encrypted = base64.b64decode(bench["file"].read_text())
     return json.loads(Fernet(key).decrypt(encrypted))
-
-
-async def create_browser(browser_provider) -> Browser:
-    """Create a Browser instance from a provider module.
-
-    browser-use-cloud uses the native use_cloud=True path.
-    Local providers launch browser-use's built-in Chromium.
-    All other providers return a CDP URL for Browser(cdp_url=...).
-    """
-    if browser_provider is None:
-        return Browser(use_cloud=True, cloud_timeout=30)
-    cdp_url = await browser_provider.connect()
-    if cdp_url is None:
-        return Browser(headless=getattr(browser_provider, "HEADLESS", True))
-    return Browser(cdp_url=cdp_url)
 
 
 async def run_task(
     task: dict,
     semaphore: asyncio.Semaphore,
-    browser_provider=None,
-    llm=None,
+    model: str = DEFAULT_MODEL,
+    cli_runner_class: type = PlaywrightCliRunner,
+    headless: bool = True,
     run_data_dir: Path = None,
 ) -> dict:
     """Run a single task. Returns result dict with score (0 on failure).
 
     Args:
-        browser_provider: Browser provider module (None = browser-use-cloud).
-        llm: LLM to use. Defaults to ChatBrowserUse().
+        task: Task dict with task_id, confirmed_task, category, answer.
+        semaphore: Concurrency limiter.
+        model: Claude model to use for the agent.
+        cli_runner_class: CLI runner class (PlaywrightCliRunner, etc.).
+        headless: Whether to run browser in headless mode.
         run_data_dir: Directory for trace output.
     """
     async with semaphore:
@@ -100,14 +94,19 @@ async def run_task(
             task_id = task.get("task_id", "unknown")
             print(f"Running task: {task_id}")
 
-            browser = await create_browser(browser_provider)
-
-            # To swap model: replace ChatBrowserUse() with your LLM (e.g. ChatOpenAI, ChatAnthropic)
-            # You can use any OpenAI API compatible model by changing base_url. You can use ollama too. See https://docs.browser-use.com/supported-models for info
-            agent = Agent(
+            # Create runner and agent
+            task_output_dir = run_data_dir / task_id if run_data_dir else Path(f"run_data_tmp/{task_id}")
+            runner = cli_runner_class(
+                session_name=f"bench_{task_id}",
+                headless=headless,
+                output_dir=task_output_dir,
+            )
+            agent = CliAgent(
                 task=task["confirmed_task"],
-                llm=llm or ChatBrowserUse(model="bu-2-0"),
-                browser=browser,
+                model=model,
+                runner=runner,
+                output_dir=task_output_dir,
+                task_id=task_id,
             )
 
             try:
@@ -115,9 +114,7 @@ async def run_task(
                     agent.run(), timeout=TASK_TIMEOUT
                 )
             except asyncio.TimeoutError:
-                await browser.stop()
-                if browser_provider:
-                    await browser_provider.disconnect()
+                # Runner cleanup is handled by agent.run()'s finally block
                 print(f"Task {task_id} timed out after {TASK_TIMEOUT}s")
                 return {
                     "task_id": task_id,
@@ -127,9 +124,6 @@ async def run_task(
                     "cost": 0,
                     "error": f"Task timed out after {TASK_TIMEOUT}s",
                 }
-
-            if browser_provider:
-                await browser_provider.disconnect()
 
             # Collect task metrics from agent history
             steps = agent_history.number_of_steps()
@@ -143,22 +137,21 @@ async def run_task(
             )
             agent_steps = agent_history.agent_steps()
             ground_truth = task.get("answer")
-            screenshots_b64 = encode_screenshots(
-                [p for p in agent_history.screenshot_paths() if p is not None]
-            )
+            screenshots_b64 = encode_screenshots(agent_history.screenshot_paths())
 
-            # Run judge
-            judge_messages = construct_judge_messages(
+            # Run judge (Claude-based)
+            print(f"[{task_id}] Running judge...")
+            system_prompt, user_content = construct_judge_messages(
                 task=agent_task,
                 final_result=final_result,
                 agent_steps=agent_steps,
                 ground_truth=ground_truth,
                 screenshots_b64=screenshots_b64,
             )
-            response = await JUDGE_LLM.ainvoke(
-                judge_messages, output_format=JudgementResult
+            judgement = await invoke_judge(
+                system_prompt=system_prompt,
+                user_content=user_content,
             )
-            judgement: JudgementResult = response.completion
 
             score = 1 if judgement.verdict else 0
             print(
@@ -166,25 +159,26 @@ async def run_task(
             )
 
             # Save trace to run_data/
-            run_data_dir.mkdir(parents=True, exist_ok=True)
-            trace = {
-                "agent_task": agent_task,
-                "final_result": final_result,
-                "agent_steps": agent_steps,
-                "ground_truth": ground_truth,
-                "screenshots_b64": screenshots_b64,
-            }
-            metrics = {"steps": steps, "duration": duration, "cost": cost}
-            (run_data_dir / f"{task_id}.json").write_text(
-                json.dumps(
-                    {
-                        "agent_trace": trace,
-                        "metrics": metrics,
-                        "judgement": judgement.model_dump(),
-                    },
-                    indent=2,
+            if run_data_dir:
+                run_data_dir.mkdir(parents=True, exist_ok=True)
+                trace = {
+                    "agent_task": agent_task,
+                    "final_result": final_result,
+                    "agent_steps": agent_steps,
+                    "ground_truth": ground_truth,
+                    "screenshots_b64": screenshots_b64,
+                }
+                metrics = {"steps": steps, "duration": duration, "cost": cost}
+                (run_data_dir / f"{task_id}.json").write_text(
+                    json.dumps(
+                        {
+                            "agent_trace": trace,
+                            "metrics": metrics,
+                            "judgement": judgement.model_dump(),
+                        },
+                        indent=2,
+                    )
                 )
-            )
 
             return {
                 "task_id": task_id,
@@ -211,12 +205,24 @@ async def run_task(
 
 
 async def main():
-    parser = argparse.ArgumentParser(description="Run BU_Bench_V1 evaluation")
+    parser = argparse.ArgumentParser(description="Run benchmark evaluation")
     parser.add_argument(
-        "--browser",
-        default="browser-use-cloud",
-        choices=["browser-use-cloud"] + PROVIDERS,
-        help="Browser provider (default: browser-use-cloud)",
+        "--cli",
+        default="playwright-cli",
+        choices=list(CLI_BACKENDS.keys()),
+        help="CLI browser backend (default: playwright-cli)",
+    )
+    parser.add_argument(
+        "--model",
+        default=DEFAULT_MODEL,
+        choices=["claude-haiku-4.5", "claude-sonnet-4.6", "claude-opus-4.6"],
+        help=f"Claude model for the agent (default: {DEFAULT_MODEL})",
+    )
+    parser.add_argument(
+        "--benchmark",
+        default="bu-bench",
+        choices=list(BENCHMARKS.keys()),
+        help="Benchmark to run (default: bu-bench)",
     )
     parser.add_argument(
         "--tasks",
@@ -224,31 +230,64 @@ async def main():
         default=None,
         help="Number of tasks to run (default: all)",
     )
+    parser.add_argument(
+        "--headed",
+        action="store_true",
+        help="Run browser in headed mode (visible window)",
+    )
     args = parser.parse_args()
 
-    # Resolve browser provider (None = use native browser-use-cloud path)
-    browser_name = args.browser
-    if browser_name == "browser-use-cloud":
-        browser_provider = None
-    else:
-        browser_provider = get_provider(browser_name)
+    # Resolve CLI backend
+    cli_runner_class = CLI_BACKENDS[args.cli]
+
+    # Get framework name/version from the runner class
+    # Version is resolved lazily on first start(), use class properties
+    framework_name = "PlaywrightCLI"  # Default, updated after first task
+    framework_version = "unknown"
+
+    # Try to resolve version without starting a browser session
+    import shutil
+    cli_path = shutil.which("playwright-cli")
+    if cli_path:
+        import subprocess
+        try:
+            ver_result = subprocess.run(
+                [cli_path, "--version"],
+                capture_output=True, text=True, timeout=10,
+            )
+            if ver_result.returncode == 0:
+                framework_version = ver_result.stdout.strip()
+        except Exception:
+            pass
 
     # Build run key and paths
     run_start = datetime.now().strftime("%Y%m%d_%H%M%S")
-    run_key = f"{AGENT_FRAMEWORK_NAME}_{AGENT_FRAMEWORK_VERSION}_browser_{browser_name}_model_{MODEL_NAME}"
+    run_key = f"{framework_name}_{framework_version}_model_{args.model}"
     run_data_dir = (
         Path(__file__).parent / "run_data" / f"{run_key}_start_at_{run_start}"
     )
     results_file = Path(__file__).parent / "results" / f"{run_key}.json"
 
-    tasks = load_tasks()
+    tasks = load_tasks(args.benchmark)
     if args.tasks:
         tasks = tasks[: args.tasks]
+
+    print(
+        f"Starting evaluation: {len(tasks)} tasks, "
+        f"cli={args.cli}, model={args.model}, "
+        f"benchmark={args.benchmark}, headless={not args.headed}"
+    )
+
     sem = asyncio.Semaphore(MAX_CONCURRENT)
     results = await asyncio.gather(
         *[
             run_task(
-                t, sem, browser_provider=browser_provider, run_data_dir=run_data_dir
+                t,
+                sem,
+                model=args.model,
+                cli_runner_class=cli_runner_class,
+                headless=not args.headed,
+                run_data_dir=run_data_dir,
             )
             for t in tasks
         ]
@@ -276,7 +315,8 @@ async def main():
     results_file.write_text(json.dumps(runs, indent=2))
 
     print(
-        f"Run complete: {successful}/{len(results)} tasks successful, {total_steps} steps, {total_duration:.1f}s, ${total_cost:.2f}"
+        f"Run complete: {successful}/{len(results)} tasks successful, "
+        f"{total_steps} steps, {total_duration:.1f}s, ${total_cost:.2f}"
     )
 
 
