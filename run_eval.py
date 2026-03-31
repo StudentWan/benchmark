@@ -263,10 +263,11 @@ async def main():
     # Build run key and paths
     run_start = datetime.now().strftime("%Y%m%d_%H%M%S")
     run_key = f"{framework_name}_{framework_version}_model_{args.model}"
+    bench_folder = args.benchmark.replace("-", "_")  # bu-bench -> bu_bench
     run_data_dir = (
-        Path(__file__).parent / "run_data" / f"{run_key}_start_at_{run_start}"
+        Path(__file__).parent / "run_data" / bench_folder / f"{run_key}_start_at_{run_start}"
     )
-    results_file = Path(__file__).parent / "results" / f"{run_key}.json"
+    results_file = Path(__file__).parent / "results" / bench_folder / f"{run_key}.json"
 
     tasks = load_tasks(args.benchmark)
     if args.tasks:
