@@ -6,6 +6,7 @@ enabling the benchmark to swap CLI backends without changing agent logic.
 
 import asyncio
 import shutil
+import subprocess
 import sys
 import uuid
 from abc import ABC, abstractmethod
@@ -112,10 +113,18 @@ class CliRunner(ABC):
     ) -> CommandResult:
         """Execute a raw subprocess command."""
         try:
+            # On Windows, asyncio.create_subprocess_exec with PIPE adds
+            # CREATE_NO_WINDOW by default, which prevents daemon-spawned
+            # browsers from showing a GUI window in headed mode.
+            # Use CREATE_NEW_PROCESS_GROUP to allow child GUI windows.
+            kwargs = {}
+            if sys.platform == "win32" and not self.headless:
+                kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                **kwargs,
             )
             try:
                 stdout_bytes, stderr_bytes = await asyncio.wait_for(
