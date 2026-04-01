@@ -33,10 +33,10 @@ A separate Claude judge evaluates the final result against ground truth.
 
 ### CLI Backends
 
-| Backend | Best For | Key Features |
-|---------|----------|--------------|
-| `playwright-cli` | General web tasks (BU Bench) | Standard Playwright automation, snapshot YAML files |
-| `phantomwright-cli` | Anti-bot sites (Stealth Bench) | Human behavior simulation, Cloudflare CAPTCHA solving (`cf-solve`), daemon sessions, system browser profile |
+| Backend | Key Features |
+|---------|--------------|
+| `playwright-cli` | Standard Playwright automation, snapshot YAML files |
+| `phantomwright-cli` | Human behavior simulation, Cloudflare CAPTCHA solving (`cf-solve`), daemon sessions, system browser profile |
 
 The `phantomwright-cli` backend adds three extra tools to the agent:
 - **`browser_cf_solve`** — Automatically solve Cloudflare Turnstile/CAPTCHA challenges
@@ -54,24 +54,19 @@ The `phantomwright-cli` backend adds three extra tools to the agent:
 - **[uv](https://docs.astral.sh/uv/)** (Python package manager)
 - **Anthropic API key** (or compatible proxy)
 
-### 1. Install a CLI backend
-
-**Option A: playwright-cli (recommended for BU Bench)**
+### 1. Install CLI backends
 
 ```bash
+# playwright-cli
 npm install -g @playwright/cli
 playwright-cli --version
-```
 
-**Option B: phantomwright-cli (recommended for Stealth Bench)**
-
-Install from [phantomwright.dev](https://phantomwright.dev) following their setup guide, then verify:
-
-```bash
+# phantomwright-cli
+npm install -g phantomwright-cli
 phantomwright-cli --version
 ```
 
-> You can install both and switch between them with the `--cli` flag.
+> Install both to compare their performance on the same benchmark tasks using `--cli`.
 
 ### 2. Clone and install Python dependencies
 
@@ -110,7 +105,7 @@ uv run python run_eval.py --tasks 1 --headed
 # Run all 100 BU Bench tasks
 uv run python run_eval.py
 
-# Run Stealth Bench (71 tasks) — use phantomwright-cli for best results
+# Run Stealth Bench (71 tasks)
 uv run python run_eval.py --benchmark stealth-bench --cli phantomwright-cli
 ```
 
@@ -144,11 +139,14 @@ uv run python run_eval.py --tasks 10 --model claude-haiku-4.5
 # Full BU Bench with Opus
 uv run python run_eval.py --model claude-opus-4.6
 
-# Full Stealth Bench with phantomwright-cli (recommended)
+# Full Stealth Bench with phantomwright-cli
 uv run python run_eval.py --benchmark stealth-bench --cli phantomwright-cli
 
 # Stealth Bench smoke test (headed, 1 task)
 uv run python run_eval.py --benchmark stealth-bench --cli phantomwright-cli --tasks 1 --headed
+
+# Compare both backends on BU Bench
+uv run python run_eval.py --cli playwright-cli && uv run python run_eval.py --cli phantomwright-cli
 
 # Both benchmarks (sequential)
 uv run python run_eval.py --benchmark stealth-bench --cli phantomwright-cli && uv run python run_eval.py --benchmark bu-bench
@@ -188,7 +186,7 @@ results/
   bu_bench/
     PlaywrightCLI_1.59.0_model_claude-sonnet-4.6.json
   stealth_bench/
-    PhantomwrightCLI_0.8.2_model_claude-sonnet-4.6.json
+    PhantomwrightCLI_1.58.3_model_claude-sonnet-4.6.json
 ```
 
 ```json
@@ -217,7 +215,7 @@ run_data/
         screenshots/
           screenshot_0001.png
   stealth_bench/
-    PhantomwrightCLI_0.8.2_model_claude-sonnet-4.6_start_at_20260401_091200/
+    PhantomwrightCLI_1.58.3_model_claude-sonnet-4.6_start_at_20260401_091200/
       1.json
       1/
         screenshots/
@@ -290,15 +288,15 @@ See `orchestrator.py` for configuration (models, batch size, concurrency) and `r
 
 ---
 
-## Choosing a CLI Backend
+## CLI Backend Differences
 
-| Scenario | Recommended Backend | Why |
-|----------|-------------------|-----|
-| BU Bench (general web tasks) | `playwright-cli` | Lightweight, fast startup, standard Playwright |
-| Stealth Bench (anti-bot sites) | `phantomwright-cli` | Human behavior simulation, Cloudflare bypass |
-| Sites behind CAPTCHAs | `phantomwright-cli` | `browser_cf_solve` tool auto-solves challenges |
-| Quick development/testing | `playwright-cli` | Simpler setup, no daemon needed |
-| Production evaluation | Either | Compare both for your use case |
+| Feature | `playwright-cli` | `phantomwright-cli` |
+|---------|-----------------|-------------------|
+| Browser channel | Chrome (default) | Chrome (configured) |
+| Session management | Per-command | Daemon-based |
+| Anti-bot evasion | None | Human behavior simulation |
+| CAPTCHA solving | None | `browser_cf_solve` |
+| Extra wait tools | None | `browser_wait`, `browser_wait_for_load` |
 
 The agent automatically adapts its tool set based on the backend. When using `phantomwright-cli`, Claude gains access to `browser_cf_solve`, `browser_wait`, and `browser_wait_for_load` tools, and the system prompt is extended with guidance on using them.
 
@@ -357,13 +355,12 @@ playwright-cli --version
 
 ### `phantomwright-cli not found`
 
-Install from [phantomwright.dev](https://phantomwright.dev) and make sure it's in your PATH:
+Make sure it's installed globally and in your PATH:
 
 ```bash
+npm install -g phantomwright-cli
 phantomwright-cli --version
 ```
-
-If using a local build, ensure the binary directory is in your `PATH` environment variable.
 
 ### `ANTHROPIC_API_KEY not set`
 

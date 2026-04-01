@@ -339,7 +339,8 @@ class PhantomwrightCliRunner(CliRunner):
         cli_cmd = await self._resolve_cli()
         # phantomwright-cli uses `-s <name>` (space-separated)
         # and --headless as a global flag (before the command)
-        global_flags = ["-s", self.session_name]
+        # Force --channel chrome to match playwright-cli's default browser
+        global_flags = ["-s", self.session_name, "--channel", "chrome"]
         if self.headless:
             global_flags.append("--headless")
         cmd = [*cli_cmd, *global_flags, command, *(args or [])]
