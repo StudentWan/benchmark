@@ -91,7 +91,7 @@ async def run_task(
     """
     async with semaphore:
         try:
-            task_id = task.get("task_id", "unknown")
+            task_id = str(task.get("task_id", "unknown"))
             print(f"Running task: {task_id}")
 
             # Create runner and agent
