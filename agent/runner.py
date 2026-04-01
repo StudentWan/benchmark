@@ -44,6 +44,8 @@ class CliRunner(ABC):
     works against this uniform interface.
     """
 
+    BINARY_NAME: str = ""  # Override in subclasses
+
     def __init__(
         self,
         session_name: str | None = None,
@@ -87,6 +89,58 @@ class CliRunner(ABC):
     async def close(self) -> None:
         """Close the browser session and clean up."""
 
+    # -- Command translation (override in subclasses where CLI syntax differs) --
+
+    def translate_navigate(self, url: str) -> tuple[str, list[str]]:
+        """Return (command, args) for navigating to a URL."""
+        return ("goto", [url])
+
+    def translate_scroll(self, direction: str, amount: int) -> tuple[str, list[str]]:
+        """Return (command, args) for scrolling."""
+        dy = amount if direction == "down" else -amount
+        return ("mousewheel", ["0", str(dy)])
+
+    @classmethod
+    def extra_tools(cls) -> list[dict]:
+        """Return additional tool definitions supported by this backend."""
+        return []
+
+    # -- Shared subprocess execution --
+
+    async def _run_raw(
+        self, cmd: list[str], timeout: float = 30.0
+    ) -> CommandResult:
+        """Execute a raw subprocess command."""
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            try:
+                stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                    proc.communicate(), timeout=timeout
+                )
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.wait()
+                return CommandResult(
+                    stdout="",
+                    stderr=f"Command timed out after {timeout}s: {' '.join(cmd)}",
+                    exit_code=-1,
+                )
+            return CommandResult(
+                stdout=stdout_bytes.decode(errors="replace"),
+                stderr=stderr_bytes.decode(errors="replace"),
+                exit_code=proc.returncode or 0,
+            )
+        except FileNotFoundError:
+            return CommandResult(
+                stdout="",
+                stderr=f"CLI binary not found: {cmd[0]}. Is it installed globally?",
+                exit_code=-2,
+            )
+
 
 class PlaywrightCliRunner(CliRunner):
     """playwright-cli subprocess wrapper.
@@ -96,6 +150,7 @@ class PlaywrightCliRunner(CliRunner):
     Falls back to 'npx playwright-cli' if the global binary is not found.
     """
 
+    BINARY_NAME = "playwright-cli"
     _CLI_CMD: list[str] | None = None  # Resolved command prefix
     _VERSION: str | None = None
 
@@ -223,36 +278,117 @@ class PlaywrightCliRunner(CliRunner):
             # Best-effort cleanup
             pass
 
-    async def _run_raw(
-        self, cmd: list[str], timeout: float = 30.0
-    ) -> CommandResult:
-        """Execute a raw subprocess command."""
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
+
+class PhantomwrightCliRunner(CliRunner):
+    """phantomwright-cli subprocess wrapper.
+
+    Drives phantomwright-cli via asyncio subprocesses.
+    Uses daemon-based sessions for persistent browser state,
+    human behavior simulation, and Cloudflare CAPTCHA solving.
+    """
+
+    BINARY_NAME = "phantomwright-cli"
+    _CLI_CMD: list[str] | None = None
+    _VERSION: str | None = None
+
+    @classmethod
+    async def _resolve_cli(cls) -> list[str]:
+        """Find the working phantomwright-cli command."""
+        if cls._CLI_CMD is not None:
+            return cls._CLI_CMD
+
+        resolved = shutil.which("phantomwright-cli")
+        if resolved:
+            cls._CLI_CMD = [resolved]
             try:
-                stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                    proc.communicate(), timeout=timeout
+                proc = await asyncio.create_subprocess_exec(
+                    resolved, "--version",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
                 )
-            except asyncio.TimeoutError:
-                proc.kill()
-                await proc.wait()
-                return CommandResult(
-                    stdout="",
-                    stderr=f"Command timed out after {timeout}s: {' '.join(cmd)}",
-                    exit_code=-1,
-                )
-            return CommandResult(
-                stdout=stdout_bytes.decode(errors="replace"),
-                stderr=stderr_bytes.decode(errors="replace"),
-                exit_code=proc.returncode or 0,
+                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15)
+                if proc.returncode == 0:
+                    cls._VERSION = stdout.decode(errors="replace").strip()
+            except (asyncio.TimeoutError, OSError):
+                pass
+            return cls._CLI_CMD
+
+        raise FileNotFoundError(
+            "phantomwright-cli not found. Is it installed and in your PATH?"
+        )
+
+    @property
+    def name(self) -> str:
+        return "PhantomwrightCLI"
+
+    @property
+    def version(self) -> str:
+        return self._VERSION or "unknown"
+
+    async def start(self, url: str | None = None) -> str:
+        await self._resolve_cli()
+        # phantomwright-cli defaults to headed; --headless is a global flag
+        # handled in execute(). No --headed flag needed on `open`.
+        args = [url] if url else []
+        result = await self.execute("open", args, timeout=60.0)
+        return result.output
+
+    async def execute(
+        self, command: str, args: list[str] | None = None, timeout: float = 30.0
+    ) -> CommandResult:
+        cli_cmd = await self._resolve_cli()
+        # phantomwright-cli uses `-s <name>` (space-separated)
+        # and --headless as a global flag (before the command)
+        global_flags = ["-s", self.session_name]
+        if self.headless:
+            global_flags.append("--headless")
+        cmd = [*cli_cmd, *global_flags, command, *(args or [])]
+        return await self._run_raw(cmd, timeout=timeout)
+
+    async def screenshot(self, filename: str | None = None) -> Path:
+        self._screenshot_counter += 1
+        if filename is None:
+            filename = f"screenshot_{self._screenshot_counter:04d}.png"
+
+        screenshot_dir = self.output_dir / "screenshots"
+        screenshot_dir.mkdir(parents=True, exist_ok=True)
+        filepath = screenshot_dir / filename
+
+        # phantomwright-cli uses -o, not --filename=
+        await self.execute(
+            "screenshot", ["-o", str(filepath)], timeout=15.0
+        )
+        return filepath
+
+    async def snapshot(self) -> str:
+        result = await self.execute("snapshot", timeout=15.0)
+        # phantomwright-cli outputs the accessibility tree inline
+        # (no YAML file reference like playwright-cli)
+        return result.output
+
+    async def close(self) -> None:
+        try:
+            await self.execute(
+                "session-stop", [self.session_name], timeout=10.0
             )
-        except FileNotFoundError:
-            return CommandResult(
-                stdout="",
-                stderr=f"CLI binary not found: {cmd[0]}. Is it installed globally?",
-                exit_code=-2,
-            )
+        except Exception:
+            try:
+                await self.execute("close", timeout=10.0)
+            except Exception:
+                pass
+
+    # -- Command translations (phantomwright-cli syntax) --
+
+    def translate_navigate(self, url: str) -> tuple[str, list[str]]:
+        """phantomwright-cli uses 'open' for navigation."""
+        return ("open", [url])
+
+    def translate_scroll(self, direction: str, amount: int) -> tuple[str, list[str]]:
+        """phantomwright-cli uses 'scroll [up|down] --by <pixels>'."""
+        return ("scroll", [direction, "--by", str(amount)])
+
+    @classmethod
+    def extra_tools(cls) -> list[dict]:
+        """Return phantomwright-specific tools (cf-solve, wait, etc.)."""
+        from agent.tools import PHANTOMWRIGHT_EXTRA_TOOLS
+        return PHANTOMWRIGHT_EXTRA_TOOLS

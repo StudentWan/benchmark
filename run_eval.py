@@ -24,7 +24,7 @@ from pathlib import Path
 from cryptography.fernet import Fernet
 from dotenv import load_dotenv
 from agent import CliAgent
-from agent.runner import PlaywrightCliRunner
+from agent.runner import PlaywrightCliRunner, PhantomwrightCliRunner
 from judge import construct_judge_messages, JudgementResult
 from judge_llm import invoke_judge
 
@@ -50,6 +50,7 @@ BENCHMARKS = {
 # CLI backend registry
 CLI_BACKENDS = {
     "playwright-cli": PlaywrightCliRunner,
+    "phantomwright-cli": PhantomwrightCliRunner,
 }
 
 
@@ -241,13 +242,12 @@ async def main():
     cli_runner_class = CLI_BACKENDS[args.cli]
 
     # Get framework name/version from the runner class
-    # Version is resolved lazily on first start(), use class properties
-    framework_name = "PlaywrightCLI"  # Default, updated after first task
+    framework_name = cli_runner_class.__name__.replace("CliRunner", "CLI")
     framework_version = "unknown"
 
     # Try to resolve version without starting a browser session
     import shutil
-    cli_path = shutil.which("playwright-cli")
+    cli_path = shutil.which(cli_runner_class.BINARY_NAME)
     if cli_path:
         import subprocess
         try:

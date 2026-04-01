@@ -1,34 +1,47 @@
 # Phantom Benchmark
 
-Browser automation benchmark using CLI tools + Claude. Evaluates how well an LLM-driven agent can complete real-world web tasks using [playwright-cli](https://github.com/anthropics/anthropic-playwright-mcp) as the browser automation backend.
+Browser automation benchmark using CLI tools + Claude. Evaluates how well an LLM-driven agent can complete real-world web tasks using [playwright-cli](https://github.com/anthropics/anthropic-playwright-mcp) or [phantomwright-cli](https://phantomwright.dev) as the browser automation backend.
 
 ## Architecture
 
 ```
-run_eval.py                    # Main entry point
+run_eval.py                        # Main entry point
     |
     v
-CliAgent (agent/agent.py)     # Agentic loop: Claude decides -> CLI executes -> repeat
+CliAgent (agent/agent.py)         # Agentic loop: Claude decides -> CLI executes -> repeat
     |
     v
-CliRunner (agent/runner.py)   # Abstract CLI interface
-    |
-    v
-PlaywrightCliRunner            # playwright-cli subprocess wrapper
-    |
-    v
-playwright-cli                 # Browser automation via snapshots + element refs
+CliRunner (agent/runner.py)       # Abstract CLI interface
+    |                    |
+    v                    v
+PlaywrightCliRunner  PhantomwrightCliRunner
+    |                    |
+    v                    v
+playwright-cli       phantomwright-cli
+(standard browser)   (stealth browser + CF bypass)
 ```
 
 The agent uses Claude's [tool_use](https://docs.anthropic.com/en/docs/build-with-claude/tool-use) API to decide which browser actions to take. Each iteration:
 
 1. Claude receives the task + current page snapshot
 2. Claude calls a tool (navigate, click, fill, snapshot, etc.)
-3. Python executes the corresponding `playwright-cli` command
+3. Python executes the corresponding CLI command via the selected backend
 4. The result is fed back to Claude
 5. Repeat until task is complete or iteration limit is reached
 
 A separate Claude judge evaluates the final result against ground truth.
+
+### CLI Backends
+
+| Backend | Best For | Key Features |
+|---------|----------|--------------|
+| `playwright-cli` | General web tasks (BU Bench) | Standard Playwright automation, snapshot YAML files |
+| `phantomwright-cli` | Anti-bot sites (Stealth Bench) | Human behavior simulation, Cloudflare CAPTCHA solving (`cf-solve`), daemon sessions, system browser profile |
+
+The `phantomwright-cli` backend adds three extra tools to the agent:
+- **`browser_cf_solve`** — Automatically solve Cloudflare Turnstile/CAPTCHA challenges
+- **`browser_wait`** — Wait for a specific element to appear
+- **`browser_wait_for_load`** — Wait for network idle (page fully loaded)
 
 ---
 
@@ -41,17 +54,24 @@ A separate Claude judge evaluates the final result against ground truth.
 - **[uv](https://docs.astral.sh/uv/)** (Python package manager)
 - **Anthropic API key** (or compatible proxy)
 
-### 1. Install playwright-cli
+### 1. Install a CLI backend
+
+**Option A: playwright-cli (recommended for BU Bench)**
 
 ```bash
 npm install -g @playwright/cli
-```
-
-Verify it's installed:
-
-```bash
 playwright-cli --version
 ```
+
+**Option B: phantomwright-cli (recommended for Stealth Bench)**
+
+Install from [phantomwright.dev](https://phantomwright.dev) following their setup guide, then verify:
+
+```bash
+phantomwright-cli --version
+```
+
+> You can install both and switch between them with the `--cli` flag.
 
 ### 2. Clone and install Python dependencies
 
@@ -90,8 +110,8 @@ uv run python run_eval.py --tasks 1 --headed
 # Run all 100 BU Bench tasks
 uv run python run_eval.py
 
-# Run Stealth Bench (71 tasks)
-uv run python run_eval.py --benchmark stealth-bench
+# Run Stealth Bench (71 tasks) — use phantomwright-cli for best results
+uv run python run_eval.py --benchmark stealth-bench --cli phantomwright-cli
 ```
 
 ---
@@ -110,7 +130,7 @@ uv run python run_eval.py [OPTIONS]
 | `--model` | `claude-sonnet-4.6` | Claude model: `claude-haiku-4.5`, `claude-sonnet-4.6`, `claude-opus-4.6` |
 | `--tasks` | all | Number of tasks to run (e.g. `--tasks 5` for first 5) |
 | `--headed` | off | Show the browser window (useful for debugging) |
-| `--cli` | `playwright-cli` | CLI backend to use |
+| `--cli` | `playwright-cli` | CLI backend: `playwright-cli` or `phantomwright-cli` |
 
 ### Examples
 
@@ -124,11 +144,14 @@ uv run python run_eval.py --tasks 10 --model claude-haiku-4.5
 # Full BU Bench with Opus
 uv run python run_eval.py --model claude-opus-4.6
 
-# Full Stealth Bench
-uv run python run_eval.py --benchmark stealth-bench
+# Full Stealth Bench with phantomwright-cli (recommended)
+uv run python run_eval.py --benchmark stealth-bench --cli phantomwright-cli
 
-# Both benchmarks
-uv run python run_eval.py --benchmark bu-bench && uv run python run_eval.py --benchmark stealth-bench
+# Stealth Bench smoke test (headed, 1 task)
+uv run python run_eval.py --benchmark stealth-bench --cli phantomwright-cli --tasks 1 --headed
+
+# Both benchmarks (sequential)
+uv run python run_eval.py --benchmark stealth-bench --cli phantomwright-cli && uv run python run_eval.py --benchmark bu-bench
 ```
 
 ### Terminal Output
@@ -158,10 +181,14 @@ Run complete: 1/1 tasks successful, 12 steps, 89.3s, $0.45
 
 ### Results
 
-Aggregate results are saved to `results/`:
+Aggregate results are saved to `results/<benchmark>/`:
 
 ```
-results/PlaywrightCLI_1.59.0_model_claude-sonnet-4.6.json
+results/
+  bu_bench/
+    PlaywrightCLI_1.59.0_model_claude-sonnet-4.6.json
+  stealth_bench/
+    PhantomwrightCLI_0.8.2_model_claude-sonnet-4.6.json
 ```
 
 ```json
@@ -179,16 +206,22 @@ results/PlaywrightCLI_1.59.0_model_claude-sonnet-4.6.json
 
 ### Traces
 
-Detailed per-task traces are saved to `run_data/<run_key>/`:
+Detailed per-task traces are saved to `run_data/<benchmark>/<run_key>/`:
 
 ```
-run_data/PlaywrightCLI_1.59.0_model_claude-sonnet-4.6_start_at_20260331_154630/
-  66c6641b-f949-46a2-8bcc-6d9dd388b534.json    # Trace + judgement
-  66c6641b-f949-46a2-8bcc-6d9dd388b534/         # Screenshots
-    screenshots/
-      screenshot_0001.png
-      screenshot_0002.png
-      ...
+run_data/
+  bu_bench/
+    PlaywrightCLI_1.59.0_model_claude-sonnet-4.6_start_at_20260331_154630/
+      66c6641b-f949-46a2-8bcc-6d9dd388b534.json
+      66c6641b-f949-46a2-8bcc-6d9dd388b534/
+        screenshots/
+          screenshot_0001.png
+  stealth_bench/
+    PhantomwrightCLI_0.8.2_model_claude-sonnet-4.6_start_at_20260401_091200/
+      1.json
+      1/
+        screenshots/
+          screenshot_0001.png
 ```
 
 Each trace JSON contains:
@@ -257,6 +290,20 @@ See `orchestrator.py` for configuration (models, batch size, concurrency) and `r
 
 ---
 
+## Choosing a CLI Backend
+
+| Scenario | Recommended Backend | Why |
+|----------|-------------------|-----|
+| BU Bench (general web tasks) | `playwright-cli` | Lightweight, fast startup, standard Playwright |
+| Stealth Bench (anti-bot sites) | `phantomwright-cli` | Human behavior simulation, Cloudflare bypass |
+| Sites behind CAPTCHAs | `phantomwright-cli` | `browser_cf_solve` tool auto-solves challenges |
+| Quick development/testing | `playwright-cli` | Simpler setup, no daemon needed |
+| Production evaluation | Either | Compare both for your use case |
+
+The agent automatically adapts its tool set based on the backend. When using `phantomwright-cli`, Claude gains access to `browser_cf_solve`, `browser_wait`, and `browser_wait_for_load` tools, and the system prompt is extended with guidance on using them.
+
+---
+
 ## Project Structure
 
 ```
@@ -267,8 +314,8 @@ phantom-benchmark/
     cost.py                 # Token cost calculation
     prompts.py              # System prompt for the agent
     result.py               # AgentResult dataclass
-    runner.py               # CliRunner ABC + PlaywrightCliRunner
-    tools.py                # Tool definitions + executor
+    runner.py               # CliRunner ABC + PlaywrightCliRunner + PhantomwrightCliRunner
+    tools.py                # Tool definitions + executor (incl. phantomwright extras)
   judge.py                  # Judge message construction
   judge_llm.py              # Claude judge invocation
   run_eval.py               # Main benchmark script
@@ -307,6 +354,16 @@ Make sure it's installed globally and in your PATH:
 npm install -g @playwright/cli
 playwright-cli --version
 ```
+
+### `phantomwright-cli not found`
+
+Install from [phantomwright.dev](https://phantomwright.dev) and make sure it's in your PATH:
+
+```bash
+phantomwright-cli --version
+```
+
+If using a local build, ensure the binary directory is in your `PATH` environment variable.
 
 ### `ANTHROPIC_API_KEY not set`
 

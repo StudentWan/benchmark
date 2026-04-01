@@ -8,12 +8,13 @@ import asyncio
 import json
 from dotenv import load_dotenv
 from run_eval import load_tasks, run_task
-from agent.runner import PlaywrightCliRunner
+from agent.runner import PlaywrightCliRunner, PhantomwrightCliRunner
 
 load_dotenv()
 
 CLI_BACKENDS = {
     "playwright-cli": PlaywrightCliRunner,
+    "phantomwright-cli": PhantomwrightCliRunner,
 }
 
 MODELS = {

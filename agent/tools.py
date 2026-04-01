@@ -249,8 +249,47 @@ BROWSER_TOOLS: list[dict] = [
 
 
 # ---------------------------------------------------------------------------
-# Tool executor
+# PhantomWright-only extra tools (conditionally added via runner.extra_tools())
 # ---------------------------------------------------------------------------
+
+PHANTOMWRIGHT_EXTRA_TOOLS: list[dict] = [
+    {
+        "name": "browser_cf_solve",
+        "description": "Attempt to solve a Cloudflare CAPTCHA/Turnstile challenge. Use when the page shows a Cloudflare verification screen.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "timeout_ms": {
+                    "type": "integer",
+                    "description": "Timeout in milliseconds (default: 30000)",
+                    "default": 30000,
+                },
+            },
+        },
+    },
+    {
+        "name": "browser_wait",
+        "description": "Wait for a specific element to appear on the page.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "ref": {
+                    "type": "string",
+                    "description": "Element ref to wait for",
+                },
+            },
+            "required": ["ref"],
+        },
+    },
+    {
+        "name": "browser_wait_for_load",
+        "description": "Wait for the page to finish loading (network idle).",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+]
 
 
 def _describe_tool_call(tool_name: str, tool_input: dict) -> str:
@@ -308,6 +347,12 @@ def _describe_tool_call(tool_name: str, tool_input: dict) -> str:
             result = tool_input.get("result", "")
             preview = result[:80] + "..." if len(result) > 80 else result
             return f"Task completed: {preview}"
+        case "browser_cf_solve":
+            return f"Solving Cloudflare CAPTCHA (timeout={tool_input.get('timeout_ms', 30000)}ms)"
+        case "browser_wait":
+            return f"Waiting for element {tool_input.get('ref', '?')}"
+        case "browser_wait_for_load":
+            return "Waiting for page load (network idle)"
         case _:
             return f"Unknown tool: {tool_name}"
 
@@ -344,7 +389,8 @@ async def execute_tool(
 
     if tool_name == "browser_navigate":
         url = tool_input["url"]
-        result = await runner.execute("goto", [url])
+        cmd, args = runner.translate_navigate(url)
+        result = await runner.execute(cmd, args)
         # Auto-screenshot after navigation
         try:
             path = await runner.screenshot()
@@ -439,8 +485,8 @@ async def execute_tool(
     if tool_name == "browser_scroll":
         direction = tool_input.get("direction", "down")
         amount = tool_input.get("amount", 500)
-        dy = amount if direction == "down" else -amount
-        result = await runner.execute("mousewheel", ["0", str(dy)])
+        cmd, args = runner.translate_scroll(direction, amount)
+        result = await runner.execute(cmd, args)
         snapshot = await runner.snapshot()
         if result.ok:
             return f"Scrolled {direction} by {amount}px.\n\nPage snapshot:\n{_truncate(snapshot)}", False
@@ -506,5 +552,36 @@ async def execute_tool(
         if result.ok:
             return f"JS result:\n{result.output}", False
         return f"JS eval error: {result.output}", False
+
+    # -- PhantomWright-only tools --
+
+    if tool_name == "browser_cf_solve":
+        timeout_ms = str(tool_input.get("timeout_ms", 30000))
+        result = await runner.execute(
+            "cf-solve", ["--timeout", timeout_ms], timeout=60.0
+        )
+        snapshot = await runner.snapshot()
+        if result.ok:
+            return (
+                f"Cloudflare challenge solved.\n\n"
+                f"Page snapshot:\n{_truncate(snapshot)}",
+                False,
+            )
+        return f"CF-solve failed: {result.output}", False
+
+    if tool_name == "browser_wait":
+        ref = tool_input["ref"]
+        result = await runner.execute("wait", [ref], timeout=35.0)
+        if result.ok:
+            return f"Element {ref} appeared.", False
+        return f"Wait error: {result.output}", False
+
+    if tool_name == "browser_wait_for_load":
+        result = await runner.execute(
+            "wait-for-load", ["--state", "networkidle"], timeout=35.0
+        )
+        if result.ok:
+            return "Page finished loading (network idle).", False
+        return f"Wait-for-load error: {result.output}", False
 
     return f"Unknown tool: {tool_name}", False

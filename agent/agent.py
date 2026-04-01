@@ -242,13 +242,40 @@ class CliAgent:
 
         Uses streaming to work around proxy non-streaming tool_use issues.
         """
+        # Build dynamic tool list (base + runner-specific extras)
+        tools = BROWSER_TOOLS + self.runner.extra_tools()
+
+        # Build system prompt (base + extra capability guidance)
+        system = SYSTEM_PROMPT
+        extra = self.runner.extra_tools()
+        if extra:
+            extra_names = [t["name"] for t in extra]
+            guidance_parts = []
+            if "browser_cf_solve" in extra_names:
+                guidance_parts.append(
+                    "- **browser_cf_solve**: If you encounter a Cloudflare "
+                    "challenge or CAPTCHA, use this tool to attempt automatic solving."
+                )
+            if "browser_wait" in extra_names:
+                guidance_parts.append(
+                    "- **browser_wait**: Wait for a specific element to appear "
+                    "before interacting with it."
+                )
+            if "browser_wait_for_load" in extra_names:
+                guidance_parts.append(
+                    "- **browser_wait_for_load**: Wait for the page to fully load "
+                    "(network idle) before taking actions."
+                )
+            if guidance_parts:
+                system += "\n\n## Additional Capabilities\n\n" + "\n".join(guidance_parts)
+
         for attempt in range(MAX_API_RETRIES):
             try:
                 async with client.messages.stream(
                     model=self.model,
                     max_tokens=4096,
-                    system=SYSTEM_PROMPT,
-                    tools=BROWSER_TOOLS,
+                    system=system,
+                    tools=tools,
                     messages=messages,
                 ) as stream:
                     return await stream.get_final_message()
