@@ -12,9 +12,14 @@ Available models: claude-haiku-4-5, claude-sonnet-4-6 (default), claude-opus-4-6
 """
 
 # Fix for MacOS users using uv without SSL certificate setup
-import certifi, os
+import certifi, os, sys
 
 os.environ.setdefault("SSL_CERT_FILE", certifi.where())
+
+# Fix Windows console encoding: cp936/charmap can't print emoji → UnicodeEncodeError crash
+if sys.platform == "win32":
+    sys.stdout.reconfigure(errors="replace")
+    sys.stderr.reconfigure(errors="replace")
 
 import argparse
 import asyncio

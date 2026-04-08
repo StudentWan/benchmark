@@ -40,10 +40,10 @@ def construct_judge_messages(
 		Tuple of (system_prompt_str, user_content_parts) where user_content_parts
 		is a list of Anthropic API content blocks (text + images).
 	"""
-	task_truncated = _truncate_text(task, 40000)
-	final_result_truncated = _truncate_text(final_result, 40000)
+	task_truncated = task
+	final_result_truncated = final_result
 	steps_text = '\n'.join(agent_steps)
-	steps_text_truncated = _truncate_text(steps_text, 40000)
+	steps_text_truncated = steps_text
 
 	# Select last N unique screenshots (dedupe while preserving order)
 	seen = set()

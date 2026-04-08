@@ -302,13 +302,11 @@ def _describe_tool_call(tool_name: str, tool_input: dict) -> str:
         case "browser_fill":
             ref = tool_input.get("ref", "?")
             text = tool_input.get("text", "")
-            preview = text[:50] + "..." if len(text) > 50 else text
             submit = " and submitted" if tool_input.get("submit") else ""
-            return f"Filled '{preview}' into {ref}{submit}"
+            return f"Filled '{text}' into {ref}{submit}"
         case "browser_type":
             text = tool_input.get("text", "")
-            preview = text[:50] + "..." if len(text) > 50 else text
-            return f"Typed '{preview}'"
+            return f"Typed '{text}'"
         case "browser_press":
             return f"Pressed {tool_input.get('key', '?')}"
         case "browser_snapshot":
@@ -341,12 +339,10 @@ def _describe_tool_call(tool_name: str, tool_input: dict) -> str:
             return f"Closed tab {idx}" if idx is not None else "Closed current tab"
         case "browser_eval":
             expr = tool_input.get("expression", "?")
-            preview = expr[:60] + "..." if len(expr) > 60 else expr
-            return f"Evaluated JS: {preview}"
+            return f"Evaluated JS: {expr}"
         case "task_complete":
             result = tool_input.get("result", "")
-            preview = result[:80] + "..." if len(result) > 80 else result
-            return f"Task completed: {preview}"
+            return f"Task completed: {result}"
         case "browser_cf_solve":
             return f"Solving Cloudflare CAPTCHA (timeout={tool_input.get('timeout_ms', 30000)}ms)"
         case "browser_wait":
