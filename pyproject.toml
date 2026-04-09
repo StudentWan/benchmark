@@ -6,6 +6,7 @@ requires-python = ">=3.11"
 dependencies = [
     "anthropic>=0.40.0",
     "certifi",
+    "claude-agent-sdk",
     "cryptography",
     "pydantic>=2.0",
     "python-dotenv",

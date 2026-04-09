@@ -31,9 +31,7 @@ RUNS = {
 }
 
 # CLI backend and framework info for result file naming
-CLI_BACKEND = "playwright-cli"
-FRAMEWORK_NAME = "PlaywrightCLI"
-FRAMEWORK_VERSION = "1.0.0"
+CLI_BACKEND = "playwright-cli"  # Change this to test different CLI tools
 
 RESULTS_DIR = Path(__file__).parent / "official_results"
 API_BASE = f"https://api.github.com/repos/{REPO}"
@@ -103,7 +101,7 @@ def download_artifact(artifact_id: int, retries: int = 3) -> dict | None:
 def save_result(model: str, batch_result: dict):
     """Aggregate batch result into official_results file for the model."""
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    filename = RESULTS_DIR / f"{FRAMEWORK_NAME}_{FRAMEWORK_VERSION}_model_{model}.json"
+    filename = RESULTS_DIR / f"{CLI_BACKEND}_model_{model}.json"
 
     # Load or create run data
     runs = json.loads(filename.read_text()) if filename.exists() else []

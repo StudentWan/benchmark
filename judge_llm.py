@@ -48,7 +48,7 @@ async def invoke_judge(
 
     async with client.messages.stream(
         model=resolved_model,
-        max_tokens=4096,
+        max_tokens=64000,
         system=system_prompt,
         messages=[{"role": "user", "content": user_content}],
     ) as stream:

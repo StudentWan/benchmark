@@ -8,19 +8,19 @@ import asyncio
 import json
 from dotenv import load_dotenv
 from run_eval import load_tasks, run_task
-from agent.runner import PlaywrightCliRunner, PhantomwrightCliRunner
+from agent import ExecutorConfig
+from agent.cli_registry import list_cli_tools
 
 load_dotenv()
 
-CLI_BACKENDS = {
-    "playwright-cli": PlaywrightCliRunner,
-    "phantomwright-cli": PhantomwrightCliRunner,
-}
-
 MODELS = {
-    "claude-haiku-4.5": "claude-haiku-4.5",
-    "claude-sonnet-4.6": "claude-sonnet-4.6",
-    "claude-opus-4.6": "claude-opus-4.6",
+    "haiku": "haiku",
+    "sonnet": "sonnet",
+    "opus": "opus",
+    # Legacy full names still accepted
+    "claude-haiku-4.5": "haiku",
+    "claude-sonnet-4.6": "sonnet",
+    "claude-opus-4.6": "opus",
 }
 
 
@@ -40,21 +40,26 @@ async def run_batch(
     parallel: int = 3,
     tracking_id: str = None,
     run_start: str = None,
-    cli_backend: str = "playwright-cli",
+    cli_tool: str = "playwright-cli",
+    anthropic_base_url: str | None = None,
 ) -> dict:
     """Run tasks[start:end] with given model. Returns results summary."""
     tasks = interleave(load_tasks())[start:end]
-    model = MODELS[model_name]
-    cli_runner_class = CLI_BACKENDS[cli_backend]
+    model = MODELS.get(model_name, model_name)
     sem = asyncio.Semaphore(parallel)
+
+    config = ExecutorConfig(
+        cli_tool_name=cli_tool,
+        model=model,
+        anthropic_base_url=anthropic_base_url,
+    )
 
     results = await asyncio.gather(
         *[
             run_task(
                 t,
                 sem,
-                model=model,
-                cli_runner_class=cli_runner_class,
+                config=config,
                 run_data_dir=None,
             )
             for t in tasks
@@ -65,6 +70,7 @@ async def run_batch(
     return {
         "tracking_id": tracking_id,
         "model": model_name,
+        "cli_tool": cli_tool,
         "start": start,
         "end": end,
         "run_start": run_start,
@@ -115,8 +121,13 @@ def main():
     parser.add_argument(
         "--cli",
         default="playwright-cli",
-        choices=list(CLI_BACKENDS.keys()),
+        choices=list_cli_tools(),
         help="CLI browser backend (default: playwright-cli)",
+    )
+    parser.add_argument(
+        "--anthropic-base-url",
+        default=os.getenv("ANTHROPIC_BASE_URL"),
+        help="Proxy URL for agent maestro desktop",
     )
     args = parser.parse_args()
 
@@ -129,6 +140,7 @@ def main():
             args.tracking_id,
             args.run_start,
             args.cli,
+            args.anthropic_base_url,
         )
     )
     with open(args.output, "w") as f:
