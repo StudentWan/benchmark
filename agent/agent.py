@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import shutil
+import subprocess
 import tempfile
 import time
 from dataclasses import dataclass
@@ -128,8 +129,14 @@ class AgentSDKExecutor:
 
     async def _run_agent(self, task_description: str) -> AgentResult:
         """Core agent execution using the SDK."""
+        # Session isolation: give each concurrent task its own browser
+        # so they don't share the same page/tabs.
+        session_name = self._task_id or Path(tempfile.gettempdir()).name
+
         system_prompt_text = build_system_prompt(
-            self._cli_tool, headless=self._config.headless
+            self._cli_tool,
+            headless=self._config.headless,
+            session_name=session_name,
         )
 
         # Write instructions as CLAUDE.md in a temp working directory.
@@ -153,7 +160,8 @@ class AgentSDKExecutor:
             # Create hooks bound to this execution's tracker
             pre_hook = create_pre_tool_use_hook(self._cli_tool)
             post_hook = create_post_tool_use_hook(
-                self._cli_tool, self._tracker, work_screenshot_dir
+                self._cli_tool, self._tracker, work_screenshot_dir,
+                session_name=session_name,
             )
 
             # Build environment variables for the SDK session
@@ -164,6 +172,12 @@ class AgentSDKExecutor:
             # Headed/headless mode (if CLI supports env var config)
             if not self._config.headless and self._cli_tool.headed_env_var:
                 env[self._cli_tool.headed_env_var] = "true"
+
+            # Session isolation via env var (e.g. agent-browser).
+            # For CLIs that use a flag instead (playwright-cli, patchright-cli),
+            # the system prompt instructs the agent to include the flag.
+            if self._cli_tool.session_env_var:
+                env[self._cli_tool.session_env_var] = session_name
 
             # Build allowed_tools with CLI-specific Bash pattern
             cli_binary = self._cli_tool.binary
@@ -415,18 +429,33 @@ class AgentSDKExecutor:
         )
 
     async def _close_existing_browser(self) -> None:
-        """Close any existing browser daemon before starting a new task.
+        """Close any existing browser session for this task.
 
-        Daemon-based CLIs (like agent-browser) keep a persistent browser
-        process. If it was started headless, subsequent --headed flags are
-        ignored. Closing it first ensures the correct mode on next launch.
+        When running concurrently, each task gets its own session name.
+        We only close THIS task's session, not all sessions (which would
+        kill other concurrent tasks' browsers).
         """
         cmd = self._cli_tool.close_command
         if not cmd:
             return
 
-        self._log(f"Closing existing browser daemon: {cmd}")
+        # If the CLI supports session isolation via env var, set it so
+        # the close command targets only this task's session.
+        close_env = None
+        if self._cli_tool.session_env_var and self._task_id:
+            close_env = {self._cli_tool.session_env_var: self._task_id}
+
+        self._log(f"Closing browser session: {cmd}")
         try:
-            await _run_shell(cmd, timeout=10)
+            if close_env:
+                # Use Popen directly to pass env
+                import os
+                env = {**os.environ, **close_env}
+                proc = await asyncio.to_thread(
+                    subprocess.run, cmd, shell=True, capture_output=True,
+                    timeout=10, stdin=subprocess.DEVNULL, env=env,
+                )
+            else:
+                await _run_shell(cmd, timeout=10)
         except Exception:
-            pass  # Ignore errors -- daemon may not be running
+            pass  # Ignore errors -- session may not exist yet

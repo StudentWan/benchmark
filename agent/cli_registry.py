@@ -54,6 +54,17 @@ class CliTool:
     headed_flag: str = "--headed"
     """CLI flag to pass for headed mode (e.g., '--headed')."""
 
+    # -- Per-CLI session isolation --
+
+    session_env_var: str | None = None
+    """Environment variable to set the browser session name.
+    Used to isolate concurrent tasks so they don't share the same browser.
+    None if the CLI doesn't support session isolation via env."""
+
+    session_flag: str | None = None
+    """CLI flag template for session isolation (e.g., '-s={session}').
+    Used in the close command to close the task-specific session."""
+
     # -- Per-CLI screenshot configuration --
 
     screenshot_command: str | None = None
@@ -115,9 +126,10 @@ CLI_REGISTRY: dict[str, CliTool] = {
         description="Vercel agent-browser - browser automation CLI for AI agents",
         headed_env_var="AGENT_BROWSER_HEADED",
         headed_flag="--headed",
+        session_env_var="AGENT_BROWSER_SESSION",
         screenshot_command="agent-browser screenshot {path}",
         screenshot_returns_path=True,
-        close_command="agent-browser close --all",
+        close_command="agent-browser close",
     ),
     # ----- playwright-cli -----
     "playwright-cli": CliTool(
@@ -128,6 +140,7 @@ CLI_REGISTRY: dict[str, CliTool] = {
         description="Microsoft Playwright CLI - cross-browser automation",
         headed_env_var=None,
         headed_flag="--headed",
+        session_flag="-s={session}",
         screenshot_command="playwright-cli screenshot --filename={path}",
         screenshot_returns_path=True,
         close_command="playwright-cli close",
@@ -141,6 +154,7 @@ CLI_REGISTRY: dict[str, CliTool] = {
         description="Patchright CLI - undetected browser automation",
         headed_env_var=None,
         headed_flag="--headed",
+        session_flag="-s={session}",
         screenshot_command="patchright-cli screenshot --filename={path}",
         screenshot_returns_path=True,
         close_command="patchright-cli close",

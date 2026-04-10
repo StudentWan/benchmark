@@ -385,6 +385,7 @@ def create_post_tool_use_hook(
     cli_tool: CliTool,
     tracker: StepTracker,
     screenshot_dir: Path | None = None,
+    session_name: str | None = None,
 ):
     """Create a PostToolUse hook for tracking execution steps.
 
@@ -431,7 +432,7 @@ def create_post_tool_use_hook(
             and AUTO_SCREENSHOT_KEYWORDS.search(command)
             and "screenshot" not in command.lower()
         ):
-            auto_path = await _auto_screenshot(cli_tool, tracker, screenshot_dir)
+            auto_path = await _auto_screenshot(cli_tool, tracker, screenshot_dir, session_name)
             if auto_path:
                 step_screenshots.append(auto_path)
 
@@ -482,6 +483,7 @@ async def _auto_screenshot(
     cli_tool: CliTool,
     tracker: StepTracker,
     screenshot_dir: Path | None,
+    session_name: str | None = None,
 ) -> str | None:
     """Capture a screenshot after an interesting command.
 
@@ -508,6 +510,15 @@ async def _auto_screenshot(
 
     # Build command from template
     cmd = cli_tool.screenshot_command.format(path=path_str, dir=dir_str)
+
+    # Add session flag for CLIs that need it (playwright-cli, patchright-cli)
+    if session_name and cli_tool.session_flag:
+        flag = cli_tool.session_flag.format(session=session_name)
+        # Insert flag after the binary name: "playwright-cli screenshot ..."
+        # becomes "playwright-cli -s=xxx screenshot ..."
+        binary = cli_tool.binary
+        if cmd.startswith(binary):
+            cmd = f"{binary} {flag} {cmd[len(binary):]}"
 
     try:
         returncode, stdout_bytes, stderr_bytes = await _run_shell(
