@@ -111,6 +111,11 @@ class AgentSDKExecutor:
         browser instance per CLI.  The system prompt instructs the agent
         to close old tabs before starting.
         """
+        # Ensure a headed browser is running before the first task.
+        # Subsequent tasks reuse the same browser instance.
+        if not self._config.headless:
+            await self._ensure_headed_browser()
+
         start_time = time.monotonic()
 
         try:
@@ -446,3 +451,36 @@ class AgentSDKExecutor:
                 await _run_shell(cmd, timeout=10)
         except Exception:
             pass  # Ignore errors -- session may not exist yet
+
+    _browsers_launched: set[str] = set()
+
+    async def _ensure_headed_browser(self) -> None:
+        """Pre-launch a headed browser if one isn't already running.
+
+        Called before the first task to ensure the CLI's browser daemon
+        starts in headed mode.  Subsequent tasks reuse the same browser.
+        For agent-browser this is handled via AGENT_BROWSER_HEADED env var,
+        but playwright-cli and patchright-cli need an explicit ``open``
+        with ``--headed`` to start in headed mode.
+        """
+        cli_name = self._cli_tool.name
+        if cli_name in AgentSDKExecutor._browsers_launched:
+            return
+        AgentSDKExecutor._browsers_launched.add(cli_name)
+
+        binary = self._cli_tool.binary
+        headed_flag = self._cli_tool.headed_flag or "--headed"
+
+        # agent-browser uses env var for headed mode, no pre-launch needed
+        if self._cli_tool.headed_env_var:
+            return
+
+        # For playwright-cli / patchright-cli: open a blank page in headed
+        # mode to start the browser daemon, then the agent's commands will
+        # reuse this browser.
+        cmd = f"{binary} open {headed_flag} about:blank"
+        self._log(f"Pre-launching headed browser: {cmd}")
+        try:
+            await _run_shell(cmd, timeout=30)
+        except Exception as e:
+            self._log(f"  Warning: headed pre-launch failed: {e}")
