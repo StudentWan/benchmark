@@ -106,12 +106,11 @@ class AgentSDKExecutor:
         2. Invokes the Agent SDK query loop
         3. Collects results, steps, and screenshots
         4. Returns structured AgentResult
-        """
-        # Kill any existing browser daemon so headed/headless mode takes
-        # effect on the next launch. Daemon-based CLIs (like agent-browser)
-        # ignore --headed if a headless daemon is already running.
-        await self._close_existing_browser()
 
+        The browser is NOT closed between tasks — tasks share a single
+        browser instance per CLI.  The system prompt instructs the agent
+        to close old tabs before starting.
+        """
         start_time = time.monotonic()
 
         try:
@@ -129,14 +128,9 @@ class AgentSDKExecutor:
 
     async def _run_agent(self, task_description: str) -> AgentResult:
         """Core agent execution using the SDK."""
-        # Session isolation: give each concurrent task its own browser
-        # so they don't share the same page/tabs.
-        session_name = self._task_id or Path(tempfile.gettempdir()).name
-
         system_prompt_text = build_system_prompt(
             self._cli_tool,
             headless=self._config.headless,
-            session_name=session_name,
         )
 
         # Write instructions as CLAUDE.md in a temp working directory.
@@ -161,7 +155,6 @@ class AgentSDKExecutor:
             pre_hook = create_pre_tool_use_hook(self._cli_tool)
             post_hook = create_post_tool_use_hook(
                 self._cli_tool, self._tracker, work_screenshot_dir,
-                session_name=session_name,
             )
 
             # Build environment variables for the SDK session
@@ -172,12 +165,6 @@ class AgentSDKExecutor:
             # Headed/headless mode (if CLI supports env var config)
             if not self._config.headless and self._cli_tool.headed_env_var:
                 env[self._cli_tool.headed_env_var] = "true"
-
-            # Session isolation via env var (e.g. agent-browser).
-            # For CLIs that use a flag instead (playwright-cli, patchright-cli),
-            # the system prompt instructs the agent to include the flag.
-            if self._cli_tool.session_env_var:
-                env[self._cli_tool.session_env_var] = session_name
 
             # Build allowed_tools with CLI-specific Bash pattern
             cli_binary = self._cli_tool.binary

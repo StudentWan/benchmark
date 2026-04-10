@@ -17,7 +17,6 @@ def build_system_prompt(
     cli_tool: CliTool,
     *,
     headless: bool = True,
-    session_name: str | None = None,
 ) -> str:
     """Build the system prompt for the Agent SDK.
 
@@ -29,8 +28,6 @@ def build_system_prompt(
         cli_tool: The CLI tool definition to build the prompt for.
         headless: Whether to run in headless mode. When False, the prompt
             instructs the agent to use headed mode flags.
-        session_name: If set, instructs the agent to use this session name
-            for all CLI commands to isolate concurrent tasks.
 
     Returns:
         Complete system prompt string.
@@ -48,23 +45,6 @@ def build_system_prompt(
 
 You MUST run the browser in **headed mode** (visible browser window). \
 Ensure the browser launches with a visible UI, not headless.
-"""
-
-    # Build session isolation instruction
-    session_instruction = ""
-    if session_name and cli_tool.session_flag:
-        flag = cli_tool.session_flag.format(session=session_name)
-        session_instruction = f"""
-## Session Isolation (CRITICAL)
-
-You MUST include `{flag}` in **every** `{cli_tool.binary}` command \
-you run. This ensures your browser session is isolated from other \
-concurrent tasks. Without this flag, your commands will interfere \
-with other running tasks.
-
-Example: `{cli_tool.binary} {flag} open https://example.com`
-Example: `{cli_tool.binary} {flag} snapshot`
-Example: `{cli_tool.binary} {flag} click e1`
 """
 
     return f"""\
@@ -117,7 +97,7 @@ and basic utilities (echo, cat, ls, pwd). Do NOT use any other browser \
 automation tools, python, node, curl, wget, or other executables.
 2. **Turn limit**: You have a maximum of 50 turns to complete the task. \
 Work efficiently. Do NOT waste turns on screenshots — they are captured automatically.
-{headed_instruction}{session_instruction}
+{headed_instruction}
 
 ## Completion Protocol
 

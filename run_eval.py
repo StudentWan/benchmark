@@ -43,7 +43,7 @@ from judge_llm import invoke_judge
 load_dotenv()
 
 # Configuration
-MAX_CONCURRENT = 3
+MAX_CONCURRENT = 1  # Sequential: one task at a time per CLI, sharing one browser
 TASK_TIMEOUT = 1800  # 30 minutes max per task
 DEFAULT_MODEL = "sonnet"
 
