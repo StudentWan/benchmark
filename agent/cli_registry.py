@@ -2,12 +2,27 @@
 
 Each CLI tool is defined as an immutable dataclass with its binary name,
 allowed command prefixes (for hook validation), skill directory path,
-and per-CLI configuration for headed mode, screenshot dirs, and lifecycle.
+and per-CLI configuration for headed mode, screenshots, and lifecycle.
+
+Screenshot Design
+-----------------
+Each CLI tool declares a ``screenshot_command`` template that produces a
+screenshot at a **deterministic file path**.  The template uses two
+placeholders:
+
+* ``{path}`` — the full output file path (e.g. ``./screenshots/auto_001.png``)
+* ``{dir}``  — the output directory (for CLIs that only accept a directory)
+
+The auto-screenshot system calls the command **synchronously** (awaiting
+completion) so the resulting file is guaranteed to exist when the path is
+recorded into the step tracker.  This eliminates the race condition of the
+old fire-and-forget approach where the directory was scanned before the
+screenshot file was fully written.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 
@@ -42,13 +57,20 @@ class CliTool:
     # -- Per-CLI screenshot configuration --
 
     screenshot_command: str | None = None
-    """Command template to capture a screenshot. Use {dir} as placeholder
-    for the output directory. None if the CLI doesn't support screenshots
-    or the command is unknown."""
+    """Command template to capture a screenshot.
 
-    default_screenshot_dirs: tuple[Path, ...] = ()
-    """Default directories where this CLI saves screenshots.
-    Used as fallback scan paths for collecting screenshots."""
+    Placeholders:
+      {path} — full output file path (preferred, deterministic)
+      {dir}  — output directory (for CLIs that generate their own filename)
+
+    The command is awaited synchronously so the file is guaranteed to exist
+    when recording completes.  Set to None if the CLI doesn't support
+    screenshots."""
+
+    screenshot_returns_path: bool = True
+    """If True, the screenshot file is at the exact ``{path}`` we specified.
+    If False (e.g. agent-browser with --screenshot-dir), the CLI generates
+    its own filename inside ``{dir}`` and we must scan for it."""
 
     # -- Per-CLI lifecycle commands --
 
@@ -65,6 +87,12 @@ _SKILLS_DIR = Path(__file__).resolve().parent.parent / "skills"
 _HOME = Path.home()
 
 CLI_REGISTRY: dict[str, CliTool] = {
+    # ----- browser-use -----
+    # Known issue: browser-use 0.6.x CLI is broken on some platforms
+    # (outputs only dotenv initialization messages, no actual browser
+    # interaction).  screenshot_command is set to the documented form but
+    # may silently fail; the system degrades gracefully (no screenshot
+    # collected, benchmark continues).
     "browser-use": CliTool(
         name="browser-use",
         binary="browser-use",
@@ -72,10 +100,13 @@ CLI_REGISTRY: dict[str, CliTool] = {
         skill_dir=_SKILLS_DIR / "browser-use",
         description="Browser Use CLI - AI-native browser automation",
         headed_env_var=None,
-        screenshot_command="browser-use screenshot {dir}/screenshot_{ts}.png",
-        default_screenshot_dirs=(),
+        screenshot_command="browser-use screenshot {path}",
+        screenshot_returns_path=True,
         close_command="browser-use close",
     ),
+    # ----- agent-browser -----
+    # agent-browser accepts either an explicit path or --screenshot-dir.
+    # We use the explicit path form for deterministic file naming.
     "agent-browser": CliTool(
         name="agent-browser",
         binary="agent-browser",
@@ -84,12 +115,11 @@ CLI_REGISTRY: dict[str, CliTool] = {
         description="Vercel agent-browser - browser automation CLI for AI agents",
         headed_env_var="AGENT_BROWSER_HEADED",
         headed_flag="--headed",
-        screenshot_command="agent-browser screenshot --screenshot-dir {dir}",
-        default_screenshot_dirs=(
-            _HOME / ".agent-browser" / "tmp" / "screenshots",
-        ),
+        screenshot_command="agent-browser screenshot {path}",
+        screenshot_returns_path=True,
         close_command="agent-browser close --all",
     ),
+    # ----- playwright-cli -----
     "playwright-cli": CliTool(
         name="playwright-cli",
         binary="playwright-cli",
@@ -98,10 +128,11 @@ CLI_REGISTRY: dict[str, CliTool] = {
         description="Microsoft Playwright CLI - cross-browser automation",
         headed_env_var=None,
         headed_flag="--headed",
-        screenshot_command="playwright-cli screenshot --filename={dir}/screenshot_{ts}.png",
-        default_screenshot_dirs=(),
+        screenshot_command="playwright-cli screenshot --filename={path}",
+        screenshot_returns_path=True,
         close_command="playwright-cli close",
     ),
+    # ----- patchright-cli -----
     "patchright-cli": CliTool(
         name="patchright-cli",
         binary="patchright-cli",
@@ -110,9 +141,9 @@ CLI_REGISTRY: dict[str, CliTool] = {
         description="Patchright CLI - undetected browser automation",
         headed_env_var=None,
         headed_flag="--headed",
-        screenshot_command="patchright-cli screenshot --filename={dir}/screenshot_{ts}.png",
-        default_screenshot_dirs=(),
-        close_command="patchright-cli close-all",
+        screenshot_command="patchright-cli screenshot --filename={path}",
+        screenshot_returns_path=True,
+        close_command="patchright-cli close",
     ),
 }
 

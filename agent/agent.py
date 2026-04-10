@@ -30,6 +30,7 @@ from agent.cli_registry import CliTool, get_cli_tool
 from agent.hooks import (
     CAPTCHA_PATTERNS,
     StepTracker,
+    _run_shell,
     create_post_tool_use_hook,
     create_pre_tool_use_hook,
 )
@@ -105,17 +106,6 @@ class AgentSDKExecutor:
         3. Collects results, steps, and screenshots
         4. Returns structured AgentResult
         """
-        self._config.screenshot_dir.mkdir(parents=True, exist_ok=True)
-        self._tracker.set_screenshot_dir(self._config.screenshot_dir)
-
-        # Register CLI tool's default screenshot directories as fallback
-        for extra_dir in self._cli_tool.default_screenshot_dirs:
-            self._tracker.add_screenshot_dir(extra_dir)
-
-        # Mark all existing screenshots as "already known" so we only
-        # collect screenshots that are new from THIS task run.
-        self._tracker.snapshot_existing_files()
-
         # Kill any existing browser daemon so headed/headless mode takes
         # effect on the next launch. Daemon-based CLIs (like agent-browser)
         # ignore --headed if a headless daemon is already running.
@@ -148,13 +138,22 @@ class AgentSDKExecutor:
         work_dir = tempfile.mkdtemp(prefix="benchmark_task_")
         claude_md_path = Path(work_dir) / "CLAUDE.md"
 
+        # playwright-cli and patchright-cli enforce a file sandbox that
+        # only allows writes inside the working directory.  To make
+        # auto-screenshots work, we save them inside work_dir first and
+        # copy them to the final screenshot_dir after execution.
+        work_screenshot_dir = Path(work_dir) / "screenshots"
+        work_screenshot_dir.mkdir(exist_ok=True)
+        self._tracker.set_screenshot_dir(work_screenshot_dir)
+        self._tracker.snapshot_existing_files()
+
         try:
             claude_md_path.write_text(system_prompt_text, encoding="utf-8")
 
             # Create hooks bound to this execution's tracker
             pre_hook = create_pre_tool_use_hook(self._cli_tool)
             post_hook = create_post_tool_use_hook(
-                self._cli_tool, self._tracker, self._config.screenshot_dir
+                self._cli_tool, self._tracker, work_screenshot_dir
             )
 
             # Build environment variables for the SDK session
@@ -223,65 +222,80 @@ class AgentSDKExecutor:
             self._log(f"Task: {task_description}")
             self._log(f"CLI tool: {self._cli_tool.name}, model: {self._config.model}")
 
-            async for message in query(prompt=task_prompt, options=options):
-                msg_type = type(message).__name__
+            try:
+                async for message in query(prompt=task_prompt, options=options):
+                    msg_type = type(message).__name__
 
-                if isinstance(message, AssistantMessage):
-                    turn_counter += 1
-                    # Track token usage
-                    if message.usage:
-                        total_input_tokens += message.usage.get("input_tokens", 0)
-                        total_output_tokens += message.usage.get("output_tokens", 0)
-                        elapsed = time.monotonic() - start_time
-                        self._log(
-                            f"  Turn {turn_counter}: "
-                            f"tokens={total_input_tokens}+{total_output_tokens}, "
-                            f"elapsed={elapsed:.1f}s"
-                        )
-
-                    # Log and record each content block
-                    for block in message.content:
-                        if hasattr(block, "name"):
-                            # Tool use block
-                            tool_input = getattr(block, "input", {})
-                            if block.name == "Bash":
-                                cmd = tool_input.get("command", "")
-                                self._log(f"  >> Bash: {cmd[:300]}")
-                            else:
-                                # Log non-Bash tools with their input
-                                input_str = str(tool_input)[:300]
-                                self._log(f"  >> Tool: {block.name} | {input_str}")
-                        elif hasattr(block, "text") and block.text:
-                            # Text block — agent reasoning
-                            self._log(f"  >> Text: {block.text[:200]}")
-                            self._tracker.record_step(
-                                command="[agent reasoning]",
-                                output=block.text,
-                                is_error=False,
+                    if isinstance(message, AssistantMessage):
+                        turn_counter += 1
+                        # Track token usage
+                        if message.usage:
+                            total_input_tokens += message.usage.get("input_tokens", 0)
+                            total_output_tokens += message.usage.get("output_tokens", 0)
+                            elapsed = time.monotonic() - start_time
+                            self._log(
+                                f"  Turn {turn_counter}: "
+                                f"tokens={total_input_tokens}+{total_output_tokens}, "
+                                f"elapsed={elapsed:.1f}s"
                             )
-                            # Detect captcha/blocking in agent reasoning text
-                            if CAPTCHA_PATTERNS.search(block.text):
-                                self._tracker.captcha_detected = True
 
-                elif isinstance(message, ResultMessage):
-                    final_message = message
-                    elapsed = time.monotonic() - start_time
-                    stop = getattr(message, "stop_reason", "?")
-                    cost = getattr(message, "total_cost_usd", 0) or 0
-                    turns = getattr(message, "num_turns", "?")
-                    self._log(
-                        f"  Done: stop={stop}, turns={turns}, "
-                        f"cost=${cost:.3f}, elapsed={elapsed:.1f}s"
-                    )
-                    result_text = getattr(message, "result", "")
-                    if result_text:
-                        self._log(f"  Result: {result_text[:200]}")
+                        # Log and record each content block
+                        for block in message.content:
+                            if hasattr(block, "name"):
+                                # Tool use block
+                                tool_input = getattr(block, "input", {})
+                                if block.name == "Bash":
+                                    cmd = tool_input.get("command", "")
+                                    self._log(f"  >> Bash: {cmd[:300]}")
+                                else:
+                                    # Log non-Bash tools with their input
+                                    input_str = str(tool_input)[:300]
+                                    self._log(f"  >> Tool: {block.name} | {input_str}")
+                            elif hasattr(block, "text") and block.text:
+                                # Text block — agent reasoning
+                                self._log(f"  >> Text: {block.text[:200]}")
+                                self._tracker.record_step(
+                                    command="[agent reasoning]",
+                                    output=block.text,
+                                    is_error=False,
+                                )
+                                # Detect captcha/blocking in agent reasoning text
+                                if CAPTCHA_PATTERNS.search(block.text):
+                                    self._tracker.captcha_detected = True
 
-                elif isinstance(message, SystemMessage):
-                    sub = getattr(message, "subtype", "?")
-                    self._log(f"  [System] {sub}")
+                    elif isinstance(message, ResultMessage):
+                        final_message = message
+                        elapsed = time.monotonic() - start_time
+                        stop = getattr(message, "stop_reason", "?")
+                        cost = getattr(message, "total_cost_usd", 0) or 0
+                        turns = getattr(message, "num_turns", "?")
+                        self._log(
+                            f"  Done: stop={stop}, turns={turns}, "
+                            f"cost=${cost:.3f}, elapsed={elapsed:.1f}s"
+                        )
+                        result_text = getattr(message, "result", "")
+                        if result_text:
+                            self._log(f"  Result: {result_text[:200]}")
+
+                    elif isinstance(message, SystemMessage):
+                        sub = getattr(message, "subtype", "?")
+                        self._log(f"  [System] {sub}")
+
+            except Exception as sdk_err:
+                # The Agent SDK sometimes crashes after delivering the
+                # ResultMessage (e.g. "Fatal error in message reader").
+                # If we already have a result, keep it instead of losing
+                # all collected steps and screenshots.
+                self._log(f"  SDK error after {turn_counter} turns: {sdk_err}")
+                if final_message is None:
+                    raise  # No result at all — propagate
 
             duration_ms = (time.monotonic() - start_time) * 1000
+
+            # Copy screenshots from work_dir to the final screenshot_dir
+            # BEFORE building the result, so AgentResult gets permanent
+            # paths (work_dir is deleted in the finally block).
+            self._relocate_screenshots()
 
             return self._build_result(
                 final_message, duration_ms, total_input_tokens, total_output_tokens
@@ -289,6 +303,27 @@ class AgentSDKExecutor:
         finally:
             # Clean up temp working directory
             shutil.rmtree(work_dir, ignore_errors=True)
+
+    def _relocate_screenshots(self) -> None:
+        """Copy screenshots from the temp work_dir to the final screenshot_dir.
+
+        playwright-cli and patchright-cli sandbox file writes to the temp
+        working directory.  Auto-screenshots are saved there, then copied
+        to the permanent ``screenshot_dir`` so they survive cleanup.
+        Updates ``self._tracker.screenshots`` in place with the new paths.
+        """
+        final_dir = self._config.screenshot_dir
+        final_dir.mkdir(parents=True, exist_ok=True)
+        new_paths: list[str] = []
+        for old_path_str in self._tracker.screenshots:
+            old_path = Path(old_path_str)
+            if old_path.exists():
+                dest = final_dir / old_path.name
+                shutil.copy2(old_path, dest)
+                new_paths.append(str(dest))
+            else:
+                new_paths.append(old_path_str)
+        self._tracker.screenshots = new_paths
 
     def _build_result(
         self,
@@ -392,11 +427,6 @@ class AgentSDKExecutor:
 
         self._log(f"Closing existing browser daemon: {cmd}")
         try:
-            proc = await asyncio.create_subprocess_shell(
-                cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            await asyncio.wait_for(proc.communicate(), timeout=10)
+            await _run_shell(cmd, timeout=10)
         except Exception:
-            pass  # Ignore errors — daemon may not be running
+            pass  # Ignore errors -- daemon may not be running

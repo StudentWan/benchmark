@@ -27,6 +27,7 @@ import asyncio
 import base64
 import hashlib
 import json
+import time
 import traceback
 from datetime import datetime
 from pathlib import Path
@@ -125,14 +126,26 @@ async def run_task(
                 )
             except asyncio.TimeoutError:
                 print(f"Task {task_id} timed out after {TASK_TIMEOUT}s")
-                return {
-                    "task_id": task_id,
-                    "score": 0,
-                    "steps": 0,
-                    "duration": TASK_TIMEOUT,
-                    "cost": 0,
-                    "error": f"Task timed out after {TASK_TIMEOUT}s",
-                }
+                # The executor may have collected steps/screenshots before
+                # the timeout.  Salvage what we can from its tracker.
+                tracker = executor._tracker
+                if tracker.steps:
+                    print(
+                        f"  Salvaging {len(tracker.steps)} steps, "
+                        f"{len(tracker.screenshots)} screenshots from timeout"
+                    )
+                    agent_result = executor._build_timeout_result(
+                        time.monotonic() - TASK_TIMEOUT  # approximate start
+                    )
+                else:
+                    return {
+                        "task_id": task_id,
+                        "score": 0,
+                        "steps": 0,
+                        "duration": TASK_TIMEOUT,
+                        "cost": 0,
+                        "error": f"Task timed out after {TASK_TIMEOUT}s",
+                    }
 
             # Collect task metrics
             steps = agent_result.number_of_steps()
