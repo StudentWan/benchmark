@@ -40,11 +40,17 @@ def build_system_prompt(
     # Build headed mode instruction
     headed_instruction = ""
     if not headless:
-        headed_instruction = """
-## Browser Display Mode
+        headed_flag = cli_tool.headed_flag or "--headed"
+        headed_instruction = f"""
+## Browser Display Mode (CRITICAL)
 
-You MUST run the browser in **headed mode** (visible browser window). \
-Ensure the browser launches with a visible UI, not headless.
+You MUST run the browser in **headed mode** (visible browser window).
+You MUST include `{headed_flag}` in EVERY `{cli_tool.binary} open` command. \
+NEVER omit this flag. If you forget it, the browser will start headless and \
+the test will fail.
+
+Correct:   `{cli_tool.binary} {headed_flag} open https://example.com`
+WRONG:     `{cli_tool.binary} open https://example.com`
 """
 
     return f"""\
