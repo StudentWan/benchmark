@@ -111,11 +111,6 @@ class AgentSDKExecutor:
         browser instance per CLI.  The system prompt instructs the agent
         to close old tabs before starting.
         """
-        # Ensure a headed browser is running before the first task.
-        # Subsequent tasks reuse the same browser instance.
-        if not self._config.headless:
-            await self._ensure_headed_browser()
-
         start_time = time.monotonic()
 
         try:
@@ -157,7 +152,9 @@ class AgentSDKExecutor:
             claude_md_path.write_text(system_prompt_text, encoding="utf-8")
 
             # Create hooks bound to this execution's tracker
-            pre_hook = create_pre_tool_use_hook(self._cli_tool)
+            pre_hook = create_pre_tool_use_hook(
+                self._cli_tool, headless=self._config.headless
+            )
             post_hook = create_post_tool_use_hook(
                 self._cli_tool, self._tracker, work_screenshot_dir,
             )

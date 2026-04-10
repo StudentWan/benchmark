@@ -325,15 +325,20 @@ def _extract_first_command(command: str) -> str:
     return tokens[0] if tokens else ""
 
 
-def create_pre_tool_use_hook(cli_tool: CliTool):
+def create_pre_tool_use_hook(cli_tool: CliTool, *, headless: bool = True):
     """Create a PreToolUse hook that validates Bash commands against the allowed CLI.
 
     This is the HARD enforcement layer. Combined with system prompt constraints,
     it provides dual-layer tool isolation for benchmark fairness.
 
+    When ``headless=False``, the hook also injects the ``--headed`` flag into
+    ``open`` commands to guarantee the browser runs in headed mode. This is
+    more reliable than relying on the agent to include the flag.
+
     Args:
         cli_tool: The CLI tool definition -- only commands matching its
             ``allowed_prefixes`` (plus ``ALWAYS_ALLOWED_COMMANDS``) are permitted.
+        headless: If False, auto-inject ``--headed`` into open commands.
 
     Returns:
         An async hook function compatible with the Agent SDK's hook system.
@@ -361,6 +366,20 @@ def create_pre_tool_use_hook(cli_tool: CliTool):
 
         # Allow target CLI
         if first_cmd in cli_tool.allowed_prefixes:
+            # Inject --headed flag into open commands when running in
+            # headed mode.  This ensures the browser is always visible,
+            # even if the agent forgets to include the flag.
+            if not headless and "--headed" not in command:
+                binary = cli_tool.binary
+                headed_flag = cli_tool.headed_flag or "--headed"
+                # Match: "cli open ..." or "cli batch ... open ..."
+                # Insert --headed right after the binary name.
+                if " open " in command or command.endswith(" open"):
+                    new_cmd = command.replace(
+                        f"{binary} ", f"{binary} {headed_flag} ", 1
+                    )
+                    input_data["tool_input"]["command"] = new_cmd
+
             return {}  # Approved
 
         # Allow basic utilities
