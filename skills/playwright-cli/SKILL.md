@@ -1,26 +1,26 @@
 ---
-name: playwright-cli
-description: Automate browser interactions, test web pages and work with Playwright tests.
-allowed-tools: Bash(playwright-cli:*) Bash(npx:*) Bash(npm:*)
+name: patchright-cli
+description: Automate browser interactions, test web pages and work with Patchright tests.
+allowed-tools: Bash(patchright-cli:*) Bash(npx:*) Bash(npm:*)
 ---
 
-# Browser Automation with playwright-cli
+# Browser Automation with patchright-cli
 
 ## Quick start
 
 ```bash
 # open new browser
-playwright-cli open
+patchright-cli open
 # navigate to a page
-playwright-cli goto https://playwright.dev
+patchright-cli goto https://playwright.dev
 # interact with the page using refs from the snapshot
-playwright-cli click e15
-playwright-cli type "page.click"
-playwright-cli press Enter
+patchright-cli click e15
+patchright-cli type "page.click"
+patchright-cli press Enter
 # take a screenshot (rarely used, as snapshot is more common)
-playwright-cli screenshot
+patchright-cli screenshot
 # close the browser
-playwright-cli close
+patchright-cli close
 ```
 
 ## Commands
@@ -28,163 +28,168 @@ playwright-cli close
 ### Core
 
 ```bash
-playwright-cli open
+patchright-cli open
 # open and navigate right away
-playwright-cli open https://example.com/
-playwright-cli goto https://playwright.dev
-playwright-cli type "search query"
-playwright-cli click e3
-playwright-cli dblclick e7
-playwright-cli fill e5 "user@example.com"
-playwright-cli drag e2 e8
-playwright-cli hover e4
-playwright-cli select e9 "option-value"
-playwright-cli upload ./document.pdf
-playwright-cli check e12
-playwright-cli uncheck e12
-playwright-cli snapshot
-playwright-cli snapshot --filename=after-click.yaml
-playwright-cli eval "document.title"
-playwright-cli eval "el => el.textContent" e5
-playwright-cli dialog-accept
-playwright-cli dialog-accept "confirmation text"
-playwright-cli dialog-dismiss
-playwright-cli resize 1920 1080
-playwright-cli close
+patchright-cli open https://example.com/
+patchright-cli goto https://playwright.dev
+patchright-cli type "search query"
+patchright-cli click e3
+patchright-cli dblclick e7
+# --submit presses Enter after filling the element
+patchright-cli fill e5 "user@example.com"  --submit
+patchright-cli drag e2 e8
+patchright-cli hover e4
+patchright-cli select e9 "option-value"
+patchright-cli upload ./document.pdf
+patchright-cli check e12
+patchright-cli uncheck e12
+patchright-cli snapshot
+patchright-cli eval "document.title"
+patchright-cli eval "el => el.textContent" e5
+# get element id, class, or any attribute not visible in the snapshot
+patchright-cli eval "el => el.id" e5
+patchright-cli eval "el => el.getAttribute('data-testid')" e5
+patchright-cli dialog-accept
+patchright-cli dialog-accept "confirmation text"
+patchright-cli dialog-dismiss
+patchright-cli resize 1920 1080
+patchright-cli close
 ```
 
 ### Navigation
 
 ```bash
-playwright-cli go-back
-playwright-cli go-forward
-playwright-cli reload
+patchright-cli go-back
+patchright-cli go-forward
+patchright-cli reload
 ```
 
 ### Keyboard
 
 ```bash
-playwright-cli press Enter
-playwright-cli press ArrowDown
-playwright-cli keydown Shift
-playwright-cli keyup Shift
+patchright-cli press Enter
+patchright-cli press ArrowDown
+patchright-cli keydown Shift
+patchright-cli keyup Shift
 ```
 
 ### Mouse
 
 ```bash
-playwright-cli mousemove 150 300
-playwright-cli mousedown
-playwright-cli mousedown right
-playwright-cli mouseup
-playwright-cli mouseup right
-playwright-cli mousewheel 0 100
+patchright-cli mousemove 150 300
+patchright-cli mousedown
+patchright-cli mousedown right
+patchright-cli mouseup
+patchright-cli mouseup right
+patchright-cli mousewheel 0 100
 ```
 
 ### Save as
 
 ```bash
-playwright-cli screenshot
-playwright-cli screenshot e5
-playwright-cli screenshot --filename=page.png
-playwright-cli pdf --filename=page.pdf
+patchright-cli screenshot
+patchright-cli screenshot e5
+patchright-cli screenshot --filename=page.png
+patchright-cli pdf --filename=page.pdf
 ```
 
 ### Tabs
 
 ```bash
-playwright-cli tab-list
-playwright-cli tab-new
-playwright-cli tab-new https://example.com/page
-playwright-cli tab-close
-playwright-cli tab-close 2
-playwright-cli tab-select 0
+patchright-cli tab-list
+patchright-cli tab-new
+patchright-cli tab-new https://example.com/page
+patchright-cli tab-close
+patchright-cli tab-close 2
+patchright-cli tab-select 0
 ```
 
 ### Storage
 
 ```bash
-playwright-cli state-save
-playwright-cli state-save auth.json
-playwright-cli state-load auth.json
+patchright-cli state-save
+patchright-cli state-save auth.json
+patchright-cli state-load auth.json
 
 # Cookies
-playwright-cli cookie-list
-playwright-cli cookie-list --domain=example.com
-playwright-cli cookie-get session_id
-playwright-cli cookie-set session_id abc123
-playwright-cli cookie-set session_id abc123 --domain=example.com --httpOnly --secure
-playwright-cli cookie-delete session_id
-playwright-cli cookie-clear
+patchright-cli cookie-list
+patchright-cli cookie-list --domain=example.com
+patchright-cli cookie-get session_id
+patchright-cli cookie-set session_id abc123
+patchright-cli cookie-set session_id abc123 --domain=example.com --httpOnly --secure
+patchright-cli cookie-delete session_id
+patchright-cli cookie-clear
 
 # LocalStorage
-playwright-cli localstorage-list
-playwright-cli localstorage-get theme
-playwright-cli localstorage-set theme dark
-playwright-cli localstorage-delete theme
-playwright-cli localstorage-clear
+patchright-cli localstorage-list
+patchright-cli localstorage-get theme
+patchright-cli localstorage-set theme dark
+patchright-cli localstorage-delete theme
+patchright-cli localstorage-clear
 
 # SessionStorage
-playwright-cli sessionstorage-list
-playwright-cli sessionstorage-get step
-playwright-cli sessionstorage-set step 3
-playwright-cli sessionstorage-delete step
-playwright-cli sessionstorage-clear
+patchright-cli sessionstorage-list
+patchright-cli sessionstorage-get step
+patchright-cli sessionstorage-set step 3
+patchright-cli sessionstorage-delete step
+patchright-cli sessionstorage-clear
 ```
 
 ### Network
 
 ```bash
-playwright-cli route "**/*.jpg" --status=404
-playwright-cli route "https://api.example.com/**" --body='{"mock": true}'
-playwright-cli route-list
-playwright-cli unroute "**/*.jpg"
-playwright-cli unroute
+patchright-cli route "**/*.jpg" --status=404
+patchright-cli route "https://api.example.com/**" --body='{"mock": true}'
+patchright-cli route-list
+patchright-cli unroute "**/*.jpg"
+patchright-cli unroute
 ```
 
 ### DevTools
 
 ```bash
-playwright-cli console
-playwright-cli console warning
-playwright-cli network
-playwright-cli run-code "async page => await page.context().grantPermissions(['geolocation'])"
-playwright-cli tracing-start
-playwright-cli tracing-stop
-playwright-cli video-start
-playwright-cli video-stop video.webm
+patchright-cli console
+patchright-cli console warning
+patchright-cli network
+patchright-cli run-code "async page => await page.context().grantPermissions(['geolocation'])"
+patchright-cli run-code --filename=script.js
+patchright-cli tracing-start
+patchright-cli tracing-stop
+patchright-cli video-start video.webm
+patchright-cli video-chapter "Chapter Title" --description="Details" --duration=2000
+patchright-cli video-stop
 ```
 
 ## Open parameters
 ```bash
 # Use specific browser when creating session
-playwright-cli open --browser=chrome
-playwright-cli open --browser=firefox
-playwright-cli open --browser=webkit
-playwright-cli open --browser=msedge
+patchright-cli open --browser=chrome
+patchright-cli open --browser=firefox
+patchright-cli open --browser=webkit
+patchright-cli open --browser=msedge
 # Connect to browser via extension
-playwright-cli open --extension
+patchright-cli open --extension
 
 # Use persistent profile (by default profile is in-memory)
-playwright-cli open --persistent
+patchright-cli open --persistent
 # Use persistent profile with custom directory
-playwright-cli open --profile=/path/to/profile
+patchright-cli open --profile=/path/to/profile
 
 # Start with config file
-playwright-cli open --config=my-config.json
+patchright-cli open --config=my-config.json
 
 # Close the browser
-playwright-cli close
+patchright-cli close
 # Delete user data for the default session
-playwright-cli delete-data
+patchright-cli delete-data
 ```
 
 ## Snapshots
 
-After each command, playwright-cli provides a snapshot of the current browser state.
+After each command, patchright-cli provides a snapshot of the current browser state.
 
 ```bash
-> playwright-cli goto https://example.com
+> patchright-cli goto https://example.com
 ### Page
 - Page URL: https://example.com/
 - Page Title: Example Domain
@@ -192,9 +197,22 @@ After each command, playwright-cli provides a snapshot of the current browser st
 [Snapshot](.playwright-cli/page-2026-02-14T19-22-42-679Z.yml)
 ```
 
-You can also take a snapshot on demand using `playwright-cli snapshot` command.
+You can also take a snapshot on demand using `patchright-cli snapshot` command. All the options below can be combined as needed.
 
-If `--filename` is not provided, a new snapshot file is created with a timestamp. Default to automatic file naming, use `--filename=` when artifact is a part of the workflow result.
+```bash
+# default - save to a file with timestamp-based name
+patchright-cli snapshot
+
+# save to file, use when snapshot is a part of the workflow result
+patchright-cli snapshot --filename=after-click.yaml
+
+# snapshot an element instead of the whole page
+patchright-cli snapshot "#main"
+
+# limit snapshot depth for efficiency, take a partial snapshot afterwards
+patchright-cli snapshot --depth=4
+patchright-cli snapshot e34
+```
 
 ## Targeting elements
 
@@ -202,108 +220,102 @@ By default, use refs from the snapshot to interact with page elements.
 
 ```bash
 # get snapshot with refs
-playwright-cli snapshot
+patchright-cli snapshot
 
 # interact using a ref
-playwright-cli click e15
+patchright-cli click e15
 ```
 
-You can also use css or role selectors, for example when explicitly asked for it.
+You can also use css selectors or Patchright locators.
 
 ```bash
 # css selector
-playwright-cli click "#main > button.submit"
+patchright-cli click "#main > button.submit"
 
-# role selector
-playwright-cli click "role=button[name=Submit]"
+# role locator
+patchright-cli click "getByRole('button', { name: 'Submit' })"
 
-# chaining css and role selectors
-playwright-cli click "#footer >> role=button[name=Submit]"
+# test id
+patchright-cli click "getByTestId('submit-button')"
 ```
 
 ## Browser Sessions
 
 ```bash
 # create new browser session named "mysession" with persistent profile
-playwright-cli -s=mysession open example.com --persistent
+patchright-cli -s=mysession open example.com --persistent
 # same with manually specified profile directory (use when requested explicitly)
-playwright-cli -s=mysession open example.com --profile=/path/to/profile
-playwright-cli -s=mysession click e6
-playwright-cli -s=mysession close  # stop a named browser
-playwright-cli -s=mysession delete-data  # delete user data for persistent session
+patchright-cli -s=mysession open example.com --profile=/path/to/profile
+patchright-cli -s=mysession click e6
+patchright-cli -s=mysession close  # stop a named browser
+patchright-cli -s=mysession delete-data  # delete user data for persistent session
 
-playwright-cli list
+patchright-cli list
 # Close all browsers
-playwright-cli close-all
+patchright-cli close-all
 # Forcefully kill all browser processes
-playwright-cli kill-all
+patchright-cli kill-all
 ```
 
 ## Installation
 
-If global `playwright-cli` command is not available, try a local version via `npx playwright-cli`:
-
 ```bash
-npx --no-install playwright-cli --version
-```
-
-When local version is available, use `npx playwright-cli` in all commands. Otherwise, install `playwright-cli` as a global command:
-
-```bash
-npm install -g @playwright/cli@latest
+npm install -g patchright-cli
+patchright-cli install --skills
 ```
 
 ## Example: Form submission
 
 ```bash
-playwright-cli open https://example.com/form
-playwright-cli snapshot
+patchright-cli open https://example.com/form
+patchright-cli snapshot
 
-playwright-cli fill e1 "user@example.com"
-playwright-cli fill e2 "password123"
-playwright-cli click e3
-playwright-cli snapshot
-playwright-cli close
+patchright-cli fill e1 "user@example.com"
+patchright-cli fill e2 "password123"
+patchright-cli click e3
+patchright-cli snapshot
+patchright-cli close
 ```
 
 ## Example: Multi-tab workflow
 
 ```bash
-playwright-cli open https://example.com
-playwright-cli tab-new https://example.com/other
-playwright-cli tab-list
-playwright-cli tab-select 0
-playwright-cli snapshot
-playwright-cli close
+patchright-cli open https://example.com
+patchright-cli tab-new https://example.com/other
+patchright-cli tab-list
+patchright-cli tab-select 0
+patchright-cli snapshot
+patchright-cli close
 ```
 
 ## Example: Debugging with DevTools
 
 ```bash
-playwright-cli open https://example.com
-playwright-cli click e4
-playwright-cli fill e7 "test"
-playwright-cli console
-playwright-cli network
-playwright-cli close
+patchright-cli open https://example.com
+patchright-cli click e4
+patchright-cli fill e7 "test"
+patchright-cli console
+patchright-cli network
+patchright-cli close
 ```
 
 ```bash
-playwright-cli open https://example.com
-playwright-cli tracing-start
-playwright-cli click e4
-playwright-cli fill e7 "test"
-playwright-cli tracing-stop
-playwright-cli close
+patchright-cli open https://example.com
+patchright-cli tracing-start
+patchright-cli click e4
+patchright-cli fill e7 "test"
+patchright-cli tracing-stop
+patchright-cli close
 ```
 
 ## Specific tasks
 
-* **Running and Debugging Playwright tests** [references/playwright-tests.md](references/playwright-tests.md)
+* **Running and Debugging Patchright tests** [references/playwright-tests.md](references/playwright-tests.md)
 * **Request mocking** [references/request-mocking.md](references/request-mocking.md)
-* **Running Playwright code** [references/running-code.md](references/running-code.md)
+* **Running Patchright code** [references/running-code.md](references/running-code.md)
 * **Browser session management** [references/session-management.md](references/session-management.md)
 * **Storage state (cookies, localStorage)** [references/storage-state.md](references/storage-state.md)
 * **Test generation** [references/test-generation.md](references/test-generation.md)
 * **Tracing** [references/tracing.md](references/tracing.md)
 * **Video recording** [references/video-recording.md](references/video-recording.md)
+* **Inspecting element attributes** [references/element-attributes.md](references/element-attributes.md)
